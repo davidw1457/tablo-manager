@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"tablo-manager/tablo"
 )
 
 func main() {
@@ -13,5 +14,5 @@ func main() {
 	}
 	databaseDir += string(os.PathSeparator) + ".tablomanager"
 
-	// tablo := tablo.New(databaseDir)
+	tablo := tablo.New(databaseDir)
 }
