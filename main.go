@@ -14,5 +14,5 @@ func main() {
 	}
 	databaseDir += string(os.PathSeparator) + ".tablomanager"
 
-	tablo := tablo.New(databaseDir)
+	tablo, err := tablo.New(databaseDir)
 }
