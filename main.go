@@ -19,5 +19,7 @@ func main() {
 		fmt.Println(err)
 	}
 
-	fmt.Println(tablo)
+	defer tablo.Close()
+
+	fmt.Println(tablo.ToString())
 }

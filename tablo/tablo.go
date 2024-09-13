@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"tablo-manager/tablodb"
 	"tablo-manager/utils"
 )
 
@@ -16,21 +17,21 @@ type Tablo struct {
 	ipAddress string
 	serverID  string
 	name      string
-	// database  tablodb.TabloDB
+	database  tablodb.TabloDB
 }
 
-type tabloWebUriResps struct {
-	Cpes []tabloWebUriResp
+type webUriResp struct {
+	Cpes []webUriRespTablo
 }
 
-type tabloWebUriResp struct {
+type webUriRespTablo struct {
 	Serverid   string
 	Name       string
 	Private_ip string
 }
 
-func New(databaseDir string) (Tablo, error) {
-	tablo := *new(Tablo)
+func New(databaseDir string) (*Tablo, error) {
+	tablo := new(Tablo)
 
 	_, err := os.Stat(databaseDir)
 	if err != nil {
@@ -61,16 +62,22 @@ func New(databaseDir string) (Tablo, error) {
 		return tablo, fmt.Errorf("unable to connect to tablo web api %s", err)
 	}
 
-	var tabloInfo tabloWebUriResps
+	var tabloInfo webUriResp
 
 	err = json.Unmarshal(tabloWebResponse, &tabloInfo)
 	if err != nil {
 		return tablo, fmt.Errorf("error unmarshalling response %s", err)
 	}
 
+	// TODO: Figure out what to do if there is more than one Tablo
+	// May need to update to return slice of Tablos
 	tablo.ipAddress = tabloInfo.Cpes[0].Private_ip
 	tablo.name = tabloInfo.Cpes[0].Name
 	tablo.serverID = tabloInfo.Cpes[0].Serverid
+	tablo.database, err = tablodb.New(tablo.ipAddress, tablo.name, tablo.serverID, databaseDir)
+	if err != nil {
+		return tablo, err
+	}
 
 	return tablo, nil
 }
@@ -89,4 +96,12 @@ func get(uri string) ([]byte, error) {
 	}
 
 	return body, nil
+}
+
+func (t *Tablo) ToString() string {
+	return fmt.Sprintf("Name: %s, ID: %s, IP: %s", t.name, t.serverID, t.ipAddress)
+}
+
+func (t *Tablo) Close() {
+	defer t.database.Close()
 }
