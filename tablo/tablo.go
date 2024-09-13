@@ -1,7 +1,10 @@
 package tablo
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"tablo-manager/utils"
 )
@@ -12,7 +15,18 @@ const userRWX = 0700 // unix-style octal permission
 type Tablo struct {
 	ipAddress string
 	serverID  string
+	name      string
 	// database  tablodb.TabloDB
+}
+
+type tabloWebUriResps struct {
+	Cpes []tabloWebUriResp
+}
+
+type tabloWebUriResp struct {
+	Serverid   string
+	Name       string
+	Private_ip string
 }
 
 func New(databaseDir string) (Tablo, error) {
@@ -47,9 +61,32 @@ func New(databaseDir string) (Tablo, error) {
 		return tablo, fmt.Errorf("unable to connect to tablo web api %s", err)
 	}
 
-	return *new(Tablo), nil // TODO: Placeholder return
+	var tabloInfo tabloWebUriResps
+
+	err = json.Unmarshal(tabloWebResponse, &tabloInfo)
+	if err != nil {
+		return tablo, fmt.Errorf("error unmarshalling response %s", err)
+	}
+
+	tablo.ipAddress = tabloInfo.Cpes[0].Private_ip
+	tablo.name = tabloInfo.Cpes[0].Name
+	tablo.serverID = tabloInfo.Cpes[0].Serverid
+
+	return tablo, nil
 }
 
-func get(uri string) (string, error) {
+func get(uri string) ([]byte, error) {
+	resp, err := http.Get(uri)
+	if err != nil {
+		return nil, err
+	}
 
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	return body, nil
 }
