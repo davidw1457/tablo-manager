@@ -21,3 +21,24 @@ func min(x int, y int) int {
 		return y
 	}
 }
+
+func SanitizeFileString(s string) string {
+	var out []rune
+	for _, v := range s {
+		switch v {
+		case '<':
+		case '>':
+		case ':':
+		case '"':
+		case '/':
+		case '\\':
+		case '|':
+		case '?':
+		case '*':
+			out = append(out, '_')
+		default:
+			out = append(out, v)
+		}
+	}
+	return string(out)
+}

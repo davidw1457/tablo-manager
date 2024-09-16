@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"tablo-manager/tablo"
+	"time"
 )
 
 func main() {
@@ -14,12 +15,24 @@ func main() {
 	}
 	databaseDir += string(os.PathSeparator) + ".tablomanager"
 
-	tablo, err := tablo.New(databaseDir)
+	err = os.RemoveAll(databaseDir) // TODO: Remove this line once database creation works
+
+	tablos, err := tablo.New(databaseDir)
 	if err != nil {
 		fmt.Println(err)
 	}
+	for len(tablos) > 0 {
+		for _, t := range tablos {
+			if t.NeedUpdate() {
+				t.EnqueueUpdate()
+			}
 
-	defer tablo.Close()
+			t.LoadQueue()
 
-	fmt.Println(tablo.ToString())
+			if t.HasQueueItems() {
+				t.ProcessQueue()
+			}
+		}
+		time.Sleep(5 * time.Minute)
+	}
 }
