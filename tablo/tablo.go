@@ -3,15 +3,17 @@ package tablo
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"strings"
+	"time"
+
 	"tablo-manager/tabloapi"
 	"tablo-manager/tablodb"
 	"tablo-manager/utils"
-	"time"
 )
 
 const tabloWebUri = "https://api.tablotv.com/assocserver/getipinfo/"
@@ -91,7 +93,7 @@ func New(databaseDir string) ([]*Tablo, error) {
 	}
 
 	if errMessage.String() != "" {
-		return tablos, fmt.Errorf(errMessage.String())
+		return tablos, errors.New(errMessage.String())
 	}
 	return tablos, nil
 }
@@ -169,9 +171,10 @@ func (t *Tablo) ProcessQueue() {
 		case "UPDATERECORDINGS":
 			t.updateRecordings()
 		case "EXPORT":
-			t.exportRecording(q.details)
+			// t.exportRecording(q.details)
+			return
 		default:
-			fmt.Println("Unsupported action %s", q.action)
+			fmt.Printf("Unsupported action %s\n", q.action)
 		}
 	}
 }
@@ -179,229 +182,19 @@ func (t *Tablo) ProcessQueue() {
 func (t *Tablo) updateGuide() {
 	t.updateChannels()
 	t.updateShows()
-	t.updateAirings()
-	/*
-		CREATE TABLE channel (
-		  channelID INT NOT NULL PRIMARY KEY,
-		  callSign  TEXT NOT NULL,
-		  major     INT NOT NULL,
-		  minor     INT NOT NULL,
-		  network   TEXT
-		);
-
-		-- Create show table
-		CREATE TABLE show (
-		  showID        INT NOT NULL PRIMARY KEY,
-		  parentShowID  INT,
-		  rule          TEXT,
-		  channelID     INT,
-		  keepRecording TEXT NOT NULL,
-		  count         INT,
-		  showType      TEXT NOT NULL,
-		  title         TEXT NOT NULL,
-		  descript      TEXT,
-		  releaseDate   INT,
-		  origRunTime   INT,
-		  rating        TEXT,
-		  stars         INT,
-		  FOREIGN KEY (parentShowID) REFERENCES show(showID),
-		  FOREIGN KEY (channelID) REFERENCES channel(channelID)
-		);
-
-		-- Create showAward table
-		CREATE TABLE showAward (
-		  showID        INT NOT NULL,
-		  won           INT NOT NULL,
-		  awardName     TEXT NOT NULL,
-		  awardCategory TEXT NOT NULL,
-		  awardYear     INT NOT NULL,
-		  nominee       TEXT,
-		  PRIMARY KEY (showID, awardName, awardCategory, awardYear, nominee),
-		  FOREIGN KEY (showID) REFERENCES show(showID)
-		);
-
-		-- Create showGenre table
-		CREATE TABLE showGenre (
-		  showID INT NOT NULL,
-		  genre  TEXT NOT NULL,
-		  PRIMARY KEY (showID, genre),
-		  FOREIGN KEY (showID) REFERENCES show(showID)
-		);
-
-		-- Create showCast table
-		CREATE TABLE showCastMember (
-		  showID     INT NOT NULL,
-		  castMember TEXT NOT NULL,
-		  PRIMARY KEY (showID, castMember),
-		  FOREIGN KEY (showID) REFERENCES show(showID)
-		);
-
-		-- Create showDirector table
-		CREATE TABLE showDirector (
-		  showID   INT NOT NULL,
-		  director TEXT NOT NULL,
-		  PRIMARY KEY (showID, director),
-		  FOREIGN KEY (showID) REFERENCES show(showID)
-		);
-
-		-- Create team table
-		CREATE TABLE team (
-		  teamID INT NOT NULL PRIMARY KEY,
-		  team   TEXT NOT NULL
-		);
-
-		-- Create episode table
-		CREATE TABLE episode (
-		  episodeID       TEXT NOT NULL PRIMARY KEY,
-		  showID          INT NOT NULL,
-		  title           TEXT,
-		  descript        TEXT,
-		  episode         INT,
-		  season          TEXT,
-		  seasonType      TEXT,
-		  originalAirDate INT,
-		  homeTeamID      INT,
-		  FOREIGN KEY (showID) REFERENCES show(showID),
-		  FOREIGN KEY (homeTeamID) REFERENCES team(teamID)
-		);
-
-		-- Create airing table
-		CREATE TABLE airing (
-		  airingID  INT NOT NULL PRIMARY KEY,
-		  showID    INT NOT NULL,
-		  airDate   INT NOT NULL,
-		  duration  INT NOT NULL,
-		  channelID INT NOT NULL,
-		  scheduled TEXT NOT NULL,
-		  episodeID TEXT,
-		  FOREIGN KEY (showID) REFERENCES show(showID),
-		  FOREIGN KEY (channelID) REFERENCES channel(channelID),
-		  FOREIGN KEY (episodeID) REFERENCES episode(episodeID)
-		);
-
-		-- Create episodeTeam table
-		CREATE TABLE episodeTeam (
-		  episodeID TEXT NOT NULL,
-		  teamID    INT NOT NULL,
-		  PRIMARY KEY (episodeID, teamID),
-		  FOREIGN KEY (episodeID) REFERENCES episode(episodeID),
-		  FOREIGN KEY (teamID) REFERENCES team(teamID)
-		);
-
-		-- Create recording table
-		CREATE TABLE recording (
-		  recordingID       INT NOT NULL PRIMARY KEY,
-		  showID            INT NOT NULL,
-		  airDate           INT NOT NULL,
-		  airingDuration    INT NOT NULL,
-		  channelID         INT NOT NULL,
-		  recordingState    TEXT NOT NULL,
-		  clean             INT NOT NULL,
-		  recordingDuration INT NOT NULL,
-		  recordingSize     INT NOT NULL,
-		  comSkipState      TEXT NOT NULL,
-		  episodeID         INT,
-		  FOREIGN KEY (showID) REFERENCES show(showID),
-		  FOREIGN KEY (channelID) REFERENCES channel(channelID),
-		  FOREIGN KEY (episodeID) REFERENCES episode(episodeID)
-		);
-
-		-- Create error table
-		CREATE TABLE error (
-		  errorID           INTEGER PRIMARY KEY,
-		  recordingID       INT NOT NULL,
-		  recordingShowID   INT NOT NULL,
-		  showID            INT,
-		  episodeID         INT,
-		  channelID         INT NOT NULL,
-		  airDate           INT NOT NULL,
-		  airingDuration    INT NOT NULL,
-		  recordingDuration INT NOT NULL,
-		  recordingSize     INT NOT NULL,
-		  recordingState    TEXT NOT NULL,
-		  clean             INT NOT NULL,
-		  comSkipState      TEXT NOT NULL,
-		  comSkipError      TEXT,
-		  errorCode         TEXT,
-		  errorDetails      TEXT,
-		  errorDescription  TEXT
-		);
-
-		-- Create queue table
-		CREATE TABLE queue (
-		  queueID INTEGER PRIMARY KEY,
-		  action  TEXT NOT NULL,
-		  details TEXT NOT NULL
-		);`,
-			"selectQueue": `
-		SELECT
-		  action,
-		  details
-		FROM
-		  queue
-		ORDER BY
-		  queueID ASC;`,
-		}
-
-		var templates = map[string]string{
-			"upsertSystemInfo": `
-		INSERT INTO systemInfo (
-		  serverID,
-		  serverName,
-		  privateIP,
-		  dbVer,
-		  guideLastUpdated,
-		  recordingsLastUpdated,
-		  scheduledLastUpdated
-		)
-		VALUES (
-		  '%s',
-		  '%s',
-		  '%s',
-		  %d,
-		  0,
-		  0,
-		  0
-		)
-		ON CONFLICT DO UPDATE SET
-		  serverName = '%[2]s',
-		  privateIP = '%s';`,
-			"insertQueue": `
-		INSERT INTO queue (
-		  action,
-		  details
-		)
-		VALUES (
-		  '%s',
-		  '%s'
-		);`,
-			"insertQueuePriority": `
-		INSERT INTO queue (
-		  queueID,
-		  action,
-		  details
-		)
-		SELECT
-		  MIN(queueID) - 1,
-		  '%s',
-		  '%s'
-		FROM queue
-		`,
-		}
-
-	*/
+	// t.updateAirings()
 }
 
 func (t *Tablo) updateScheduled() {
 	t.updateChannels()
-	t.updateShows()
-	t.updateScheduledAirings()
+	// t.updateShows()
+	// t.updateScheduledAirings()
 }
 
 func (t *Tablo) updateRecordings() {
-	t.updateRecordingChannels()
-	t.updateRecordingShows()
-	t.updateRecordingAirings()
+	// t.updateRecordingChannels()
+	// t.updateRecordingShows()
+	// t.updateRecordingAirings()
 }
 
 func (t *Tablo) updateChannels() {
@@ -412,7 +205,7 @@ func (t *Tablo) updateChannels() {
 	}
 
 	var channels []string
-	err = json.Unmarshal(response, channels)
+	err = json.Unmarshal(response, &channels)
 	if err != nil {
 		fmt.Println(err)
 	}
@@ -427,7 +220,7 @@ func (t *Tablo) updateChannels() {
 	}
 
 	var channelDetails map[string]tabloapi.Channel
-	err = json.Unmarshal(response, channelDetails)
+	json.Unmarshal(response, &channelDetails)
 	if len(channelDetails) > 0 {
 		t.database.InsertChannels(channelDetails)
 	}
@@ -441,7 +234,7 @@ func (t *Tablo) updateShows() {
 	}
 
 	var shows []string
-	err = json.Unmarshal(response, shows)
+	err = json.Unmarshal(response, &shows)
 	if err != nil {
 		fmt.Println(err)
 	}
@@ -456,7 +249,7 @@ func (t *Tablo) updateShows() {
 	}
 
 	var showDetails map[string]tabloapi.Show
-	err = json.Unmarshal(response, showDetails)
+	json.Unmarshal(response, &showDetails)
 	if len(showDetails) > 0 {
 		t.database.InsertShows(showDetails)
 	}
