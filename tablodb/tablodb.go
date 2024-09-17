@@ -3,6 +3,7 @@ package tablodb
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"os"
 	"strconv"
 	"time"
@@ -15,6 +16,13 @@ import (
 
 type TabloDB struct {
 	database *sql.DB
+	log      *log.Logger
+}
+
+type QueueRecord struct {
+	QueueID int
+	Action  string
+	Details string
 }
 
 func New(ipAddress string, name string, serverID string, directory string) (TabloDB, error) {
@@ -52,19 +60,6 @@ func (db *TabloDB) initialSetup() error {
 	return nil
 }
 
-func sanitizeSqlString(s string) string {
-	var out []rune
-	for _, v := range s {
-		switch v {
-		case '\'':
-			out = append(out, '\'', '\'')
-		default:
-			out = append(out, v)
-		}
-	}
-	return string(out)
-}
-
 func (db *TabloDB) GetGuideLastUpdated() (time.Time, error) {
 	result, err := db.database.Query(queries["getGuideLastUpdated"])
 	if err != nil {
@@ -95,7 +90,7 @@ func (db *TabloDB) Enqueue(action string, details string) {
 	db.database.Exec(qry)
 }
 
-func (db *TabloDB) GetQueue() ([]map[string]string, error) {
+func (db *TabloDB) GetQueue() ([]QueueRecord, error) {
 	rows, err := db.database.Query(queries["selectQueue"])
 	if err != nil {
 		return nil, err
@@ -103,11 +98,11 @@ func (db *TabloDB) GetQueue() ([]map[string]string, error) {
 
 	defer rows.Close()
 
-	var queue []map[string]string
-	var action, details string
+	var queue []QueueRecord
 	for rows.Next() {
-		rows.Scan(&action, &details)
-		queue = append(queue, map[string]string{action: details})
+		var rec QueueRecord
+		rows.Scan(&rec.QueueID, &rec.Action, &rec.Details)
+		queue = append(queue, rec)
 	}
 
 	return queue, nil
@@ -179,6 +174,10 @@ func (db *TabloDB) InsertShows(shows map[string]tabloapi.Show) {
 	}
 }
 
+func (db *TabloDB) DeleteQueueRecord(i int) {
+	db.database.Exec(templates["deleteQueueRecord"], i)
+}
+
 func int64ToTime(i int64) time.Time {
 	return time.Unix(i, 0)
 }
@@ -199,4 +198,17 @@ func dateStringToInt64(s string) int64 {
 func dateYearToInt64(y int) int64 {
 	date := time.Date(y, time.Month(1), 1, 0, 0, 0, 0, time.Local)
 	return date.Unix()
+}
+
+func sanitizeSqlString(s string) string {
+	var out []rune
+	for _, v := range s {
+		switch v {
+		case '\'':
+			out = append(out, '\'', '\'')
+		default:
+			out = append(out, v)
+		}
+	}
+	return string(out)
 }

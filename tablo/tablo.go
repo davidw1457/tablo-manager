@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -27,53 +28,49 @@ type Tablo struct {
 	guideLastUpdated      time.Time
 	scheduledLastUpdated  time.Time
 	recordingsLastUpdated time.Time
-	queue                 []queueRecord
-}
-
-type queueRecord struct {
-	action  string
-	details string
+	queue                 []tablodb.QueueRecord
+	log                   *log.Logger
 }
 
 func New(databaseDir string) ([]*Tablo, error) {
+	logFile, err := os.OpenFile(databaseDir+string(os.PathSeparator)+"main.log", os.O_WRONLY|os.O_APPEND|os.O_CREATE, userRWX)
+	if err != nil {
+		return nil, err
+	}
+	log := log.New(logFile, "tablo: ", log.LstdFlags)
+
 	var tablos []*Tablo
 
-	_, err := os.Stat(databaseDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			err = os.MkdirAll(databaseDir, userRWX)
-			if err != nil {
-				return make([]*Tablo, 0), fmt.Errorf("unable to create %s: %s", databaseDir, err)
-			}
-		} else {
-			return make([]*Tablo, 0), fmt.Errorf("unable to access %s %s", databaseDir, err)
-		}
-	}
-
+	log.Println("checking for existing caches")
 	files, err := os.ReadDir(databaseDir)
 	if err != nil {
-		return make([]*Tablo, 0), fmt.Errorf("unable to access %s %s", databaseDir, err)
+		log.Println(err.Error())
+		return nil, err
 	}
 	for _, v := range files {
 		fileName := v.Name()
 		if utils.Substring(fileName, -6, 6) == ".cache" {
-			// Open the database and check it
+			// TODO: Open the database and check it
 			// If it is valid, we can add it to the Tablo & return
 		}
 	}
 
+	log.Println("getting tablo info from web")
 	tabloWebResponse, err := get(tabloWebUri)
 	if err != nil {
-		return make([]*Tablo, 0), fmt.Errorf("unable to connect to tablo web api %s", err)
+		log.Println(err.Error())
+		return nil, err
 	}
 
+	log.Println("unmarshalling tablo info")
 	var tabloInfo tabloapi.WebApiResp
-
 	err = json.Unmarshal(tabloWebResponse, &tabloInfo)
 	if err != nil {
-		return make([]*Tablo, 0), fmt.Errorf("error unmarshalling response %s", err)
+		log.Println(err.Error())
+		return nil, err
 	}
 
+	log.Println("creating Tablo object for each tablo retrieved")
 	var errMessage strings.Builder
 	for _, v := range tabloInfo.Cpes {
 		tablo := &Tablo{
@@ -83,9 +80,11 @@ func New(databaseDir string) ([]*Tablo, error) {
 			guideLastUpdated:      time.Unix(0, 0),
 			scheduledLastUpdated:  time.Unix(0, 0),
 			recordingsLastUpdated: time.Unix(0, 0),
+			log:                   log,
 		}
 		tablo.database, err = tablodb.New(tablo.ipAddress, tablo.name, tablo.serverID, databaseDir)
 		if err != nil {
+			log.Println(err.Error())
 			errMessage.WriteString(v.Serverid + ": " + err.Error())
 		} else {
 			tablos = append(tablos, tablo)
@@ -96,22 +95,6 @@ func New(databaseDir string) ([]*Tablo, error) {
 		return tablos, errors.New(errMessage.String())
 	}
 	return tablos, nil
-}
-
-func get(uri string) ([]byte, error) {
-	resp, err := http.Get(uri)
-	if err != nil {
-		return nil, err
-	}
-
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	return body, nil
 }
 
 func (t *Tablo) String() string {
@@ -147,23 +130,16 @@ func (t *Tablo) HasQueueItems() bool {
 }
 
 func (t *Tablo) LoadQueue() {
-	t.queue = make([]queueRecord, 0)
-	queueRecords, err := t.database.GetQueue()
+	q, err := t.database.GetQueue()
 	if err != nil {
 		fmt.Println(err)
-		return
 	}
-
-	for _, r := range queueRecords {
-		for k, v := range r {
-			t.queue = append(t.queue, queueRecord{k, v})
-		}
-	}
+	t.queue = q
 }
 
 func (t *Tablo) ProcessQueue() {
 	for _, q := range t.queue {
-		switch q.action {
+		switch q.Action {
 		case "UPDATEGUIDE":
 			t.updateGuide()
 		case "UPDATESCHEDULED":
@@ -174,8 +150,9 @@ func (t *Tablo) ProcessQueue() {
 			// t.exportRecording(q.details)
 			return
 		default:
-			fmt.Printf("Unsupported action %s\n", q.action)
+			fmt.Printf("Unsupported action %s\n", q.Action)
 		}
+		t.database.DeleteQueueRecord(q.QueueID)
 	}
 }
 
@@ -198,7 +175,7 @@ func (t *Tablo) updateRecordings() {
 }
 
 func (t *Tablo) updateChannels() {
-	uri := "https://" + t.ipAddress + ":8885"
+	uri := "http://" + t.ipAddress + ":8885"
 	response, err := get(uri + "/guide/channels")
 	if err != nil {
 		fmt.Println(err)
@@ -227,7 +204,7 @@ func (t *Tablo) updateChannels() {
 }
 
 func (t *Tablo) updateShows() {
-	uri := "https://" + t.ipAddress + ":8885"
+	uri := "http://" + t.ipAddress + ":8885"
 	response, err := get(uri + "/guide/shows")
 	if err != nil {
 		fmt.Println(err)
@@ -292,6 +269,22 @@ func batch(uri string, input []string) ([]byte, error) {
 
 func post(uri string, data string) ([]byte, error) {
 	resp, err := http.Post(uri, "application/json", bytes.NewBuffer([]byte(data)))
+	if err != nil {
+		return nil, err
+	}
+
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	return body, nil
+}
+
+func get(uri string) ([]byte, error) {
+	resp, err := http.Get(uri)
 	if err != nil {
 		return nil, err
 	}

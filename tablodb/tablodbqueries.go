@@ -179,6 +179,7 @@ CREATE TABLE queue (
 	// Select all records from the queue table
 	"selectQueue": `
 SELECT
+  queueID,
   action,
   details
 FROM
@@ -349,4 +350,8 @@ VALUES (
   '%s'
 )
 ON CONFLICT DO NOTHING;`,
+	// Delete queue record
+	"deleteQueueRecord": `
+DELETE FROM queue
+WHERE queueID = %d;`,
 }

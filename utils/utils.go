@@ -13,15 +13,6 @@ func Substring(s string, start int, length int) string {
 	return string(sRunes[start : start+length])
 }
 
-func min(x int, y int) int {
-	switch {
-	case x < y:
-		return x
-	default:
-		return y
-	}
-}
-
 func SanitizeFileString(s string) string {
 	var out []rune
 	for _, v := range s {
@@ -41,4 +32,13 @@ func SanitizeFileString(s string) string {
 		}
 	}
 	return string(out)
+}
+
+func min(x int, y int) int {
+	switch {
+	case x < y:
+		return x
+	default:
+		return y
+	}
 }
