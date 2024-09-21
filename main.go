@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"time"
@@ -45,7 +46,7 @@ func main() {
 		fmt.Println(err)
 		os.Exit(1)
 	}
-	mainLog := log.New(logFile, "main: ", log.LstdFlags)
+	mainLog := log.New(io.MultiWriter(logFile, os.Stdout), "main: ", log.LstdFlags)
 
 	mainLog.Println("beginning tablo creation")
 	tablos, err := tablo.New(databaseDir)
@@ -59,23 +60,34 @@ func main() {
 	mainLog.Printf("%d tablos found. beginning process loop.\n", len(tablos))
 	for len(tablos) > 0 {
 		for _, t := range tablos {
+			mainLog.Println(t.String())
 			mainLog.Println("checking whether to update database")
 			if t.NeedUpdate() {
 				mainLog.Println("adding update tasks to work queue")
-				t.EnqueueUpdate()
+				err = t.EnqueueUpdate()
+				if err != nil {
+					mainLog.Println(err)
+					continue
+				}
 			}
 
 			mainLog.Println("loading queue records")
-			t.LoadQueue()
+			err = t.LoadQueue()
+			if err != nil {
+				mainLog.Println(err)
+				continue
+			}
 
 			mainLog.Println("checking whether there are queue records")
 			if t.HasQueueItems() {
 				mainLog.Println("processing queue records")
-				t.ProcessQueue()
+				err := t.ProcessQueue()
+				if err != nil {
+					mainLog.Println(err)
+				}
 			}
 		}
 		mainLog.Println("completed process loop. pausing for 5 minutes")
-		fmt.Println("completed process loop. pausing for 5 minutes")
 		time.Sleep(5 * time.Minute)
 	}
 }

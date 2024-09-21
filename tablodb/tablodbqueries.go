@@ -18,7 +18,7 @@ CREATE TABLE systemInfo (
   guideLastUpdated      INT NOT NULL,
   recordingsLastUpdated INT NOT NULL,
   scheduledLastUpdated  INT NOT NULL,
-  exportPath            TEXT,
+  defaultExportPath     TEXT,
   totalSize             INT,
   freeSize              INT
 );
@@ -172,16 +172,18 @@ CREATE TABLE error (
 
 -- Create queue table
 CREATE TABLE queue (
-  queueID INTEGER PRIMARY KEY,
-  action  TEXT NOT NULL,
-  details TEXT NOT NULL
+  queueID    INTEGER PRIMARY KEY,
+  action     TEXT NOT NULL,
+  details    TEXT NOT NULL,
+  exportPath TEXT NOT NULL
 );`,
 	// Select all records from the queue table
 	"selectQueue": `
 SELECT
   queueID,
   action,
-  details
+  details,
+  exportPath
 FROM
   queue
 ORDER BY
@@ -216,9 +218,11 @@ ON CONFLICT DO UPDATE SET
 	"insertQueue": `
 INSERT INTO queue (
   action,
-  details
+  details,
+  exportPath
 )
 VALUES (
+  '%s',
   '%s',
   '%s'
 );`,
@@ -227,10 +231,12 @@ VALUES (
 INSERT INTO queue (
   queueID,
   action,
-  details
+  details,
+  exportPath
 )
 SELECT
   MIN(queueID) - 1,
+  '%s',
   '%s',
   '%s'
 FROM queue
@@ -254,7 +260,7 @@ VALUES (
 ON CONFLICT DO UPDATE SET
   callSign = '%[2]s',
   major = %d,
-  minor = %d
+  minor = %d,
   network = '%s';`,
 	// Upsert show
 	"upsertShow": `
@@ -337,7 +343,7 @@ VALUES (
   %d,
   '%s'
 )
-ON CONFICT DO UPDATE SET
+ON CONFLICT DO UPDATE SET
   won = %[2]d;`,
 	// Insert showDirector
 	"insertShowDirector": `
