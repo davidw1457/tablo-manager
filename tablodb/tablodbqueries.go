@@ -507,4 +507,10 @@ UPDATE systemInfo
 SET
   serverName = '%s',
   privateIP = '%s';`,
+	// Update space in systemInfo
+	"updateSpace": `
+  UPDATE systemInfo
+  SET
+    totalSize = %d,
+    freeSize = %d;`,
 }

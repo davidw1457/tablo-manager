@@ -154,3 +154,8 @@ type ErrorDetails struct {
 	Details     *string
 	Description *string
 }
+
+type Drive struct {
+	Size int64
+	Free int64
+}

@@ -273,6 +273,12 @@ func (t *Tablo) updateGuide() error {
 		t.log.Println(err)
 		return err
 	}
+	t.log.Println("updating space")
+	err = t.updateSpace()
+	if err != nil {
+		t.log.Println(err)
+		return err
+	}
 
 	t.guideLastUpdated = time.Now()
 	t.scheduledLastUpdated = time.Now()
@@ -321,6 +327,12 @@ func (t *Tablo) updateScheduled() error {
 	}
 	t.log.Println("updating conflicts")
 	err = t.updateConflicts()
+	if err != nil {
+		t.log.Println(err)
+		return err
+	}
+	t.log.Println("updating space")
+	err = t.updateSpace()
 	if err != nil {
 		t.log.Println(err)
 		return err
@@ -593,7 +605,40 @@ func (t *Tablo) updateRecordingAirings() error {
 }
 
 func (t *Tablo) updateConflicts() error {
+	// TODO: Create table of conflicts
 	t.log.Println("not yet implemented")
+	return nil
+}
+
+func (t *Tablo) updateSpace() error {
+	uri := "http://" + t.ipAddress + ":8885"
+
+	response, err := get(uri + "/server/harddrives")
+	if err != nil {
+		t.log.Println(err)
+		return err
+	}
+
+	var drives []tabloapi.Drive
+	err = json.Unmarshal(response, &drives)
+	if err != nil {
+		t.log.Println(err)
+		return err
+	}
+
+	totalSpace := int64(0)
+	freeSpace := int64(0)
+	for _, d := range drives {
+		totalSpace += d.Size
+		freeSpace += d.Free
+	}
+
+	err = t.database.UpdateSpace(totalSpace, freeSpace)
+	if err != nil {
+		t.log.Println(err)
+		return err
+	}
+
 	return nil
 }
 

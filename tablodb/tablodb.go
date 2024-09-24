@@ -1106,6 +1106,18 @@ func (db *TabloDB) updateVer(currentVer int) error {
 	return nil
 }
 
+func (db *TabloDB) UpdateSpace(total int64, free int64) error {
+	qryUpdateSpace := fmt.Sprintf(templates["updateSpace"], total, free)
+	_, err := db.database.Exec(qryUpdateSpace)
+	if err != nil {
+		db.log.Println(qryUpdateSpace)
+		db.log.Println(err)
+		return err
+	}
+
+	return nil
+}
+
 func getEpisodeID(showID, season string, episode, airdate int) string {
 	var episodeID string
 	if season == "" {
