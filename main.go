@@ -10,22 +10,24 @@ import (
 	"tablo-manager/tablo"
 )
 
+// TODO: Populate conflicts table
+// TODO: Populate priority table
+// TODO: Populate exported table
+// TODO: Populate showFilter table
+// TODO: Create export function
+// TODO: Figure out best way to purge outdated data from system
+//       (e.g. remove showIDs that do not contain airings or recordings & are not scheduled)
+
 const userRWX = 0700 // unix-style octal permission
 
 func main() {
+
 	databaseDir, err := os.UserHomeDir()
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
 	databaseDir += string(os.PathSeparator) + ".tablomanager"
-
-	{ // TODO: Remove this block once database creation & loading work is done
-		err := os.RemoveAll(databaseDir)
-		if err != nil {
-			fmt.Println(err)
-		}
-	}
 
 	_, err = os.Stat(databaseDir)
 	if err != nil {
@@ -41,7 +43,7 @@ func main() {
 		}
 	}
 
-	logFile, err := os.OpenFile(databaseDir+string(os.PathSeparator)+"main.log", os.O_WRONLY|os.O_APPEND|os.O_CREATE, userRWX)
+	logFile, err := os.OpenFile(databaseDir+string(os.PathSeparator)+"main.log", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, userRWX)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)

@@ -2,8 +2,6 @@ package tablodb
 
 const dbVer = 1
 
-// I'll need this later: UPDATE SQLITE_SEQUENCE SET SEQ=0 WHERE NAME='table_name';
-
 var queries = map[string]string{
 	// Create entire database:
 	"createDatabase": `-- Turn on foreign key support
@@ -60,7 +58,7 @@ CREATE TABLE showAward (
   awardYear     INT NOT NULL,
   nominee       TEXT,
   PRIMARY KEY (showID, awardName, awardCategory, awardYear, nominee),
-  FOREIGN KEY (showID) REFERENCES show(showID)
+  FOREIGN KEY (showID) REFERENCES show(showID) ON DELETE CASCADE
 );
 
 -- Create showGenre table
@@ -68,7 +66,7 @@ CREATE TABLE showGenre (
   showID INT NOT NULL,
   genre  TEXT NOT NULL,
   PRIMARY KEY (showID, genre),
-  FOREIGN KEY (showID) REFERENCES show(showID)
+  FOREIGN KEY (showID) REFERENCES show(showID) ON DELETE CASCADE
 );
 
 -- Create showCast table
@@ -76,7 +74,7 @@ CREATE TABLE showCastMember (
   showID     INT NOT NULL,
   castMember TEXT NOT NULL,
   PRIMARY KEY (showID, castMember),
-  FOREIGN KEY (showID) REFERENCES show(showID)
+  FOREIGN KEY (showID) REFERENCES show(showID) ON DELETE CASCADE
 );
 
 -- Create showDirector table
@@ -84,7 +82,7 @@ CREATE TABLE showDirector (
   showID   INT NOT NULL,
   director TEXT NOT NULL,
   PRIMARY KEY (showID, director),
-  FOREIGN KEY (showID) REFERENCES show(showID)
+  FOREIGN KEY (showID) REFERENCES show(showID) ON DELETE CASCADE
 );
 
 -- Create team table
@@ -99,12 +97,12 @@ CREATE TABLE episode (
   showID          INT NOT NULL,
   title           TEXT,
   descript        TEXT,
-  episode         INT,
+  episode      INT,
   season          TEXT,
   seasonType      TEXT,
   originalAirDate INT,
   homeTeamID      INT,
-  FOREIGN KEY (showID) REFERENCES show(showID),
+  FOREIGN KEY (showID) REFERENCES show(showID) ON DELETE CASCADE,
   FOREIGN KEY (homeTeamID) REFERENCES team(teamID)
 );
 
@@ -117,9 +115,9 @@ CREATE TABLE airing (
   channelID INT NOT NULL,
   scheduled TEXT NOT NULL,
   episodeID TEXT,
-  FOREIGN KEY (showID) REFERENCES show(showID),
-  FOREIGN KEY (channelID) REFERENCES channel(channelID),
-  FOREIGN KEY (episodeID) REFERENCES episode(episodeID)
+  FOREIGN KEY (showID) REFERENCES show(showID) ON DELETE CASCADE,
+  FOREIGN KEY (channelID) REFERENCES channel(channelID) ON DELETE CASCADE,
+  FOREIGN KEY (episodeID) REFERENCES episode(episodeID) ON DELETE CASCADE
 );
 
 -- Create episodeTeam table
@@ -127,8 +125,8 @@ CREATE TABLE episodeTeam (
   episodeID TEXT NOT NULL,
   teamID    INT NOT NULL,
   PRIMARY KEY (episodeID, teamID),
-  FOREIGN KEY (episodeID) REFERENCES episode(episodeID),
-  FOREIGN KEY (teamID) REFERENCES team(teamID)
+  FOREIGN KEY (episodeID) REFERENCES episode(episodeID) ON DELETE CASCADE,
+  FOREIGN KEY (teamID) REFERENCES team(teamID) ON DELETE CASCADE
 );
 
 -- Create recording table
@@ -143,19 +141,18 @@ CREATE TABLE recording (
   recordingDuration INT NOT NULL,
   recordingSize     INT NOT NULL,
   comSkipState      TEXT NOT NULL,
-  episodeID         INT,
-  FOREIGN KEY (showID) REFERENCES show(showID),
-  FOREIGN KEY (channelID) REFERENCES channel(channelID),
-  FOREIGN KEY (episodeID) REFERENCES episode(episodeID)
+  episodeID         TEXT,
+  FOREIGN KEY (showID) REFERENCES show(showID) ON DELETE CASCADE,
+  FOREIGN KEY (channelID) REFERENCES channel(channelID) ON DELETE CASCADE,
+  FOREIGN KEY (episodeID) REFERENCES episode(episodeID) ON DELETE CASCADE
 );
 
 -- Create error table
 CREATE TABLE error (
   errorID           INTEGER PRIMARY KEY,
   recordingID       INT NOT NULL,
-  recordingShowID   INT NOT NULL,
-  showID            INT,
-  episodeID         INT,
+  showID            INT NOT NULL,
+  episodeID         TEXT,
   channelID         INT NOT NULL,
   airDate           INT NOT NULL,
   airingDuration    INT NOT NULL,
@@ -176,7 +173,36 @@ CREATE TABLE queue (
   action     TEXT NOT NULL,
   details    TEXT NOT NULL,
   exportPath TEXT NOT NULL
-);`,
+);
+
+-- Create priority table
+CREATE TABLE showPriority (
+  showID   INT NOT NULL,
+  priority INT UNIQUE,
+  FOREIGN KEY (showID) REFERENCES show(showID) ON DELETE CASCADE
+);
+
+-- Create conflicts table
+CREATE TABLE scheduleConflicts (
+  airingID INT NOT NULL PRIMARY KEY,
+  showID   INT NOT NULL,
+  airDate  INT NOT NULL,
+  endDate  INT NOT NULL,
+  FOREIGN KEY (airingID) REFERENCES airing(airingID) ON DELETE CASCADE,
+  FOREIGN KEY (showID) REFERENCES show(showID) ON DELETE CASCADE
+);
+
+-- Create exported table
+CREATE TABLE exported (
+  fullPath TEXT NOT NULL
+);
+
+-- Create filter table
+CREATE TABLE showFilter (
+  showID INT NOT NULL PRIMARY KEY,
+  ignore INT,
+  FOREIGN KEY (showID) REFERENCES show(showID)
+)`,
 	// Select all records from the queue table
 	"selectQueue": `
 SELECT
@@ -188,6 +214,26 @@ FROM
   queue
 ORDER BY
   queueID ASC;`,
+	// Get LastUpdated values from systemInfo
+	"getLastUpdated": `
+SELECT
+  guideLastUpdated,
+  scheduledLastUpdated,
+  recordingsLastUpdated
+FROM
+  systemInfo;`,
+	// Get defaultExportPath from systemInfo
+	"getDefaultExportPath": `
+SELECT
+  COALESCE(defaultExportPath, '') as defaultExportPath
+FROM
+  systemInfo;`,
+	// Get dbVer from systemInfo
+	"getDBVer": `
+SELECT
+  dbVer
+FROM
+  systemInfo;`,
 }
 
 var templates = map[string]string{
@@ -212,8 +258,8 @@ VALUES (
   0
 )
 ON CONFLICT DO UPDATE SET
-  serverName = '%[2]s',
-  privateIP = '%s';`,
+  serverName = excluded.serverName,
+  privateIP = excluded.privateIP;`,
 	// Insert queue record
 	"insertQueue": `
 INSERT INTO queue (
@@ -239,8 +285,7 @@ SELECT
   '%s',
   '%s',
   '%s'
-FROM queue
-`,
+FROM queue;`,
 	// Upsert channel
 	"upsertChannel": `
 INSERT INTO channel (
@@ -250,22 +295,18 @@ INSERT INTO channel (
   minor,
   network
 )
-VALUES (
-  %d,
-  '%s',
-  %d,
-  %d,
-  '%s'
-)
+VALUES
+%s
 ON CONFLICT DO UPDATE SET
-  callSign = '%[2]s',
-  major = %d,
-  minor = %d,
-  network = '%s';`,
+  callSign = excluded.callSign,
+  major = excluded.major,
+  minor = excluded.minor,
+  network = excluded.network;`,
 	// Upsert show
 	"upsertShow": `
 INSERT INTO show (
   showID,
+  parentShowID,
   showType,
   rule,
   channelID,
@@ -278,41 +319,27 @@ INSERT INTO show (
   rating,
   stars
 )
-VALUES (
-  %d,
-  '%s',
-  '%s',
-  %d,
-  '%s',
-  %d,
-  '%s',
-  '%s',
-  %d,
-  %d,
-  '%s',
-  %d
-)
+VALUES
+%s
 ON CONFLICT DO UPDATE SET
-  rule = '%[3]s',
-  channelID = %d,
-  keepRecording = '%s',
-  count = %d,
-  title = '%s',
-  descript = '%s',
-  releaseDate = %d,
-  origRunTime = %d,
-  rating = '%s',
-  stars = %d;`,
+  rule = excluded.rule,
+  channelID = excluded.channelID,
+  keepRecording = excluded.keepRecording,
+  count = excluded.count,
+  title = excluded.title,
+  descript = excluded.descript,
+  releaseDate = excluded.releaseDate,
+  origRunTime = excluded.origRunTime,
+  rating = excluded.rating,
+  stars = excluded.stars;`,
 	// Insert showGenre
 	"insertShowGenre": `
 INSERT INTO showGenre (
   showID,
   genre
 )
-VALUES (
-  %d,
-  '%s'
-)
+VALUES
+  %s
 ON CONFLICT DO NOTHING;`,
 	// Insert showCast
 	"insertShowCastMember": `
@@ -320,10 +347,8 @@ INSERT INTO showCastMember (
   showID,
   castMember
 )
-VALUES (
-  %d,
-  '%s'
-)
+VALUES
+  %s
 ON CONFLICT DO NOTHING;`,
 	// Upsert showAward
 	"upsertShowAward": `
@@ -335,29 +360,151 @@ INSERT INTO showAward (
   awardYear,
   nominee
 )
-VALUES (
-  %d,
-  %d,
-  '%s',
-  '%s',
-  %d,
-  '%s'
-)
+VALUES
+  %s
 ON CONFLICT DO UPDATE SET
-  won = %[2]d;`,
+  won = excluded.won;`,
 	// Insert showDirector
 	"insertShowDirector": `
 INSERT INTO showDirector (
   showID,
   director
 )
-VALUES (
-  %d,
-  '%s'
-)
+VALUES
+  %s
 ON CONFLICT DO NOTHING;`,
 	// Delete queue record
 	"deleteQueueRecord": `
 DELETE FROM queue
 WHERE queueID = %d;`,
+	// Upsert team
+	"upsertTeam": `
+INSERT INTO team (
+  teamID,
+  team
+)
+VALUES
+%s
+ON CONFLICT DO UPDATE SET
+  team = excluded.team;`,
+	// Upsert episode
+	"upsertEpisode": `
+INSERT INTO episode (
+  episodeID,
+  showID,
+  title,
+  descript,
+  episode,
+  season,
+  seasonType,
+  originalAirDate,
+  homeTeamID
+)
+VALUES
+%s
+ON CONFLICT DO UPDATE SET
+  showID = excluded.showID,
+  title = excluded.title,
+  descript = excluded.descript,
+  episode = excluded.episode,
+  season = excluded.season,
+  seasonType = excluded.seasonType,
+  originalAirDate = excluded.originalAirDate,
+  homeTeamID = excluded.homeTeamID;`,
+	// Insert episodeTeam
+	"insertEpisodeTeam": `
+INSERT INTO episodeTeam (
+  episodeID,
+  teamID
+)
+VALUES
+%s
+ON CONFLICT DO NOTHING;`,
+	// Upsert airing
+	"upsertAiring": `
+INSERT INTO airing (
+  airingID,
+  showID,
+  airDate,
+  duration,
+  channelID,
+  scheduled,
+  episodeID
+)
+VALUES
+%s
+ON CONFLICT DO UPDATE SET
+  showID = excluded.showID,
+  airDate = excluded.airDate,
+  duration = excluded.duration,
+  channelID = excluded.channelID,
+  scheduled = excluded.scheduled,
+  episodeID = excluded.episodeID;`,
+	// Update guideLastUpdated in systemInfo
+	"updateGuideLastUpdated": `
+UPDATE systemInfo
+SET guideLastUpdated = %d`,
+	// Update scheduledLastUpdated in systemInfo
+	"updateScheduledLastUpdated": `
+UPDATE systemInfo
+SET scheduledLastUpdated = %d`,
+	// Update scheduledLastUpdated in systemInfo
+	"updateRecordingsLastUpdated": `
+UPDATE systemInfo
+SET recordingsLastUpdated = %d`,
+	// Insert error
+	"upsertRecording": `
+INSERT INTO recording (
+  recordingID,
+  showID,
+  airDate,
+  airingDuration,
+  channelID,
+  recordingState,
+  clean,
+  recordingDuration,
+  recordingSize,
+  comSkipState,
+  episodeID
+)
+VALUES
+%s
+ON CONFLICT DO UPDATE SET
+  showID = excluded.showID,
+  airDate = excluded.airDate,
+  airingDuration = excluded.airingDuration,
+  channelID = excluded.channelID,
+  recordingState = excluded.recordingState,
+  clean = excluded.clean,
+  recordingDuration = excluded.recordingDuration,
+  recordingSize = excluded.recordingSize,
+  comSkipState = excluded.comSkipState,
+  episodeID = excluded.episodeID;`,
+	// Upsert recording
+	"insertError": `
+INSERT INTO error (
+  recordingID,
+  showID,
+  episodeID,
+  channelID,
+  airDate,
+  airingDuration,
+  recordingDuration,
+  recordingSize,
+  recordingState,
+  clean,
+  comSkipState,
+  comSkipError,
+  errorCode,
+  errorDetails,
+  errorDescription
+)
+VALUES
+%s;`,
+	// Update systemInfo
+	"updateSystemInfo": `
+UPDATE systemInfo
+SET
+  serverName = '%s',
+  privateIP = '%s';`,
 }

@@ -30,6 +30,7 @@ type Tablo struct {
 	recordingsLastUpdated time.Time
 	queue                 []tablodb.QueueRecord
 	log                   *log.Logger
+	defaultExportPath     string
 }
 
 func New(databaseDir string) ([]*Tablo, error) {
@@ -41,6 +42,8 @@ func New(databaseDir string) ([]*Tablo, error) {
 
 	var tablos []*Tablo
 
+	var localDBs = make(map[string]string)
+
 	tabloFactoryLog.Println("checking for existing caches")
 	files, err := os.ReadDir(databaseDir)
 	if err != nil {
@@ -50,8 +53,7 @@ func New(databaseDir string) ([]*Tablo, error) {
 	for _, v := range files {
 		fileName := v.Name()
 		if utils.Substring(fileName, -6, 6) == ".cache" {
-			// TODO: Open the database and check it
-			// If it is valid, we can add it to the Tablo & return
+			localDBs[utils.Substring(fileName, 0, len(fileName)-6)] = fileName
 		}
 	}
 
@@ -73,21 +75,55 @@ func New(databaseDir string) ([]*Tablo, error) {
 	tabloFactoryLog.Println("creating Tablo object for each tablo retrieved")
 	var errMessage strings.Builder
 	for _, v := range tabloInfo.Cpes {
-		tablo := &Tablo{
-			ipAddress:             v.Private_ip,
-			name:                  v.Name,
-			serverID:              v.Serverid,
-			guideLastUpdated:      time.Unix(0, 0),
-			scheduledLastUpdated:  time.Unix(0, 0),
-			recordingsLastUpdated: time.Unix(0, 0),
-			log:                   log.New(io.MultiWriter(logFile, os.Stdout), "tablo "+v.Serverid+": ", log.LstdFlags),
+		var tablo *Tablo
+		if localDBs[v.ServerID] != "" {
+			tablo = &Tablo{
+				ipAddress: v.Private_IP,
+				name:      v.Name,
+				serverID:  v.ServerID,
+				log:       log.New(io.MultiWriter(logFile, os.Stdout), "tablo "+v.ServerID+": ", log.LstdFlags),
+			}
+			tablo.database, err = tablodb.Open(v.ServerID, v.Private_IP, v.Name, databaseDir)
+			if err != nil {
+				tabloFactoryLog.Println(err)
+				err = os.Remove(databaseDir + string(os.PathSeparator) + localDBs[v.ServerID])
+				if err != nil {
+					tabloFactoryLog.Println(err)
+					return nil, err
+				}
+				tablo = nil
+			} else {
+				tablo.guideLastUpdated, tablo.scheduledLastUpdated, tablo.recordingsLastUpdated, err = tablo.database.GetLastUpdated()
+				if err != nil {
+					tabloFactoryLog.Println(err)
+					return nil, err
+				}
+				tablo.defaultExportPath, err = tablo.database.GetDefaultExportPath()
+				if err != nil {
+					tabloFactoryLog.Println(err)
+					return nil, err
+				}
+				tablos = append(tablos, tablo)
+			}
+
 		}
-		tablo.database, err = tablodb.New(tablo.ipAddress, tablo.name, tablo.serverID, databaseDir)
-		if err != nil {
-			tabloFactoryLog.Println(err.Error())
-			errMessage.WriteString(v.Serverid + ": " + err.Error())
-		} else {
-			tablos = append(tablos, tablo)
+		if tablo == nil {
+			tablo = &Tablo{
+				ipAddress:             v.Private_IP,
+				name:                  v.Name,
+				serverID:              v.ServerID,
+				guideLastUpdated:      time.Unix(0, 0),
+				scheduledLastUpdated:  time.Unix(0, 0),
+				recordingsLastUpdated: time.Unix(0, 0),
+				log:                   log.New(io.MultiWriter(logFile, os.Stdout), "tablo "+v.ServerID+": ", log.LstdFlags),
+			}
+			tablo.database, err = tablodb.New(tablo.ipAddress, tablo.name, tablo.serverID, databaseDir)
+			if err != nil {
+				tabloFactoryLog.Println(err.Error())
+				errMessage.WriteString(v.ServerID + ": " + err.Error())
+			} else {
+				tablos = append(tablos, tablo)
+			}
 		}
 	}
 
@@ -214,19 +250,38 @@ func (t *Tablo) ProcessQueue() error {
 
 func (t *Tablo) updateGuide() error {
 	t.log.Println("updating channels")
-	err := t.updateChannels()
+	err := t.updateChannels("/guide/channels")
 	if err != nil {
 		t.log.Println(err)
 		return err
 	}
 	t.log.Println("updating shows")
-	err = t.updateShows()
+	err = t.updateShows("/guide/shows")
 	if err != nil {
 		t.log.Println(err)
 		return err
 	}
 	t.log.Println("updating airings")
-	err = t.updateAirings()
+	err = t.updateAirings("/guide/airings")
+	if err != nil {
+		t.log.Println(err)
+		return err
+	}
+	t.log.Println("updating conflicts")
+	err = t.updateConflicts()
+	if err != nil {
+		t.log.Println(err)
+		return err
+	}
+
+	t.guideLastUpdated = time.Now()
+	t.scheduledLastUpdated = time.Now()
+	err = t.database.UpdateGuideLastUpdated(t.guideLastUpdated)
+	if err != nil {
+		t.log.Println(err)
+		return err
+	}
+	err = t.database.UpdateScheduledLastUpdated(t.scheduledLastUpdated)
 	if err != nil {
 		t.log.Println(err)
 		return err
@@ -237,55 +292,93 @@ func (t *Tablo) updateGuide() error {
 
 func (t *Tablo) updateScheduled() error {
 	t.log.Println("updating channels")
-	err := t.updateChannels()
+	err := t.updateChannels("/guide/channels")
 	if err != nil {
 		t.log.Println(err)
 		return err
 	}
 	t.log.Println("updating shows")
-	err = t.updateShows()
+	err = t.updateShows("/guide/shows")
 	if err != nil {
 		t.log.Println(err)
 		return err
 	}
 	t.log.Println("updating scheduled airings")
-	err = t.updateScheduledAirings()
+	err = t.updateAirings("/guide/airings?state=scheduled")
+	if err != nil {
+		t.log.Println(err)
+		if err.Error() != "no airings returned" {
+			return err
+		}
+	}
+	t.log.Println("updating conflicted airings")
+	err = t.updateAirings("/guide/airings?state=conflicted")
+	if err != nil {
+		t.log.Println(err)
+		if err.Error() != "no airings returned" {
+			return err
+		}
+	}
+	t.log.Println("updating conflicts")
+	err = t.updateConflicts()
 	if err != nil {
 		t.log.Println(err)
 		return err
 	}
-	t.log.Println("channels updated")
+
+	t.scheduledLastUpdated = time.Now()
+	err = t.database.UpdateScheduledLastUpdated(t.scheduledLastUpdated)
+	if err != nil {
+		t.log.Println(err)
+		return err
+	}
+	t.log.Println("scheduled updated")
 	return nil
 }
 
 func (t *Tablo) updateRecordings() error {
 	t.log.Println("updating recording channels")
-	err := t.updateRecordingChannels()
+	err := t.updateChannels("/recordings/channels")
 	if err != nil {
 		t.log.Println(err)
-		return err
+		if err.Error() != "no channels returned" {
+			return err
+		}
 	}
+
 	t.log.Println("updating recording shows")
-	err = t.updateRecordingShows()
+	err = t.updateShows("/recordings/shows")
 	if err != nil {
 		t.log.Println(err)
-		return err
+		if err.Error() != "no shows returned" {
+			return err
+		}
 	}
+
 	t.log.Println("updating recordings")
 	err = t.updateRecordingAirings()
 	if err != nil {
 		t.log.Println(err)
+		if err.Error() != "no recording airings returned" {
+			return err
+		}
+	}
+
+	t.recordingsLastUpdated = time.Now()
+	err = t.database.UpdateRecordingsLastUpdated(t.recordingsLastUpdated)
+	if err != nil {
+		t.log.Println(err)
 		return err
 	}
-	t.log.Println("recording channels updated")
+	t.log.Println("recordings updated")
 	return nil
 }
 
-func (t *Tablo) updateChannels() error {
+func (t *Tablo) updateChannels(suffix string) error {
 	t.log.Println("updating channels")
 
 	uri := "http://" + t.ipAddress + ":8885"
-	response, err := get(uri + "/guide/channels")
+	response, err := get(uri + suffix)
 	if err != nil {
 		t.log.Println(err)
 		return err
@@ -319,7 +412,7 @@ func (t *Tablo) updateChannels() error {
 	}
 	if len(channelDetails) > 0 {
 		t.log.Printf("adding %d channels to database\n", len(channelDetails))
-		err = t.database.InsertChannels(channelDetails)
+		err = t.database.UpsertChannels(channelDetails)
 		if err != nil {
 			t.log.Println(err)
 			return err
@@ -333,11 +426,11 @@ func (t *Tablo) updateChannels() error {
 	return nil
 }
 
-func (t *Tablo) updateShows() error {
+func (t *Tablo) updateShows(suffix string) error {
 	t.log.Println("updating shows")
 
 	uri := "http://" + t.ipAddress + ":8885"
-	response, err := get(uri + "/guide/shows")
+	response, err := get(uri + suffix)
 	if err != nil {
 		t.log.Println(err)
 		return err
@@ -371,7 +464,7 @@ func (t *Tablo) updateShows() error {
 	}
 	if len(showDetails) > 0 {
 		t.log.Printf("adding %d shows to database\n", len(showDetails))
-		err = t.database.InsertShows(showDetails)
+		err = t.database.UpsertShows(showDetails)
 		if err != nil {
 			t.log.Println(err)
 			return err
@@ -386,6 +479,59 @@ func (t *Tablo) updateShows() error {
 	return nil
 }
 
+func (t *Tablo) updateAirings(suffix string) error {
+	t.log.Println("updating airings")
+
+	uri := "http://" + t.ipAddress + ":8885"
+	response, err := get(uri + suffix)
+	if err != nil {
+		t.log.Println(err)
+		return err
+	}
+
+	var airings []string
+	err = json.Unmarshal(response, &airings)
+	if err != nil {
+		t.log.Println(err)
+		return err
+	}
+
+	if len(airings) > 0 {
+		t.log.Printf("getting details for %d airings\n", len(airings))
+		response, err = batch(uri, airings)
+		if err != nil {
+			t.log.Println(err)
+			return err
+		}
+	} else {
+		err = fmt.Errorf("no airings returned")
+		t.log.Println(err)
+		return err
+	}
+
+	var airingDetails map[string]tabloapi.Airing
+	err = json.Unmarshal(response, &airingDetails)
+	if err != nil {
+		t.log.Println(err)
+		return err
+	}
+	if len(airingDetails) > 0 {
+		t.log.Printf("adding %d airings to database\n", len(airingDetails))
+		err = t.database.UpsertAirings(airingDetails)
+		if err != nil {
+			t.log.Println(err)
+			return err
+		}
+	} else {
+		err = fmt.Errorf("no airing details returned")
+		t.log.Println(err)
+		return err
+	}
+
+	t.log.Println("airings updated")
+	return nil
+}
+
 func (t *Tablo) exportRecording(toExport string, exportPath string) error {
 	// TODO: Write up export
 	t.log.Printf("%s : %s\n", toExport, exportPath)
@@ -393,83 +539,105 @@ func (t *Tablo) exportRecording(toExport string, exportPath string) error {
 	return nil
 }
 
-func (t *Tablo) updateScheduledAirings() error {
-	// TODO: Write up update airings
-	t.log.Println("not yet implemented")
-	return nil
-}
-
-func (t *Tablo) updateAirings() error {
-	// TODO: Write up update airings
-	t.log.Println("not yet implemented")
-	return nil
-}
-
-func (t *Tablo) updateRecordingChannels() error {
-	// TODO: Write up update recording channels
-	t.log.Println("not yet implemented")
-	return nil
-}
-
-func (t *Tablo) updateRecordingShows() error {
-	// TODO: Write up update recording shows
-	t.log.Println("not yet implemented")
-	return nil
-}
-
 func (t *Tablo) updateRecordingAirings() error {
-	// TODO: Write up update recording airings
+	t.log.Println("updating recording airings")
+
+	uri := "http://" + t.ipAddress + ":8885"
+	response, err := get(uri + "/recordings/airings")
+	if err != nil {
+		t.log.Println(err)
+		return err
+	}
+
+	var recordings []string
+	err = json.Unmarshal(response, &recordings)
+	if err != nil {
+		t.log.Println(err)
+		return err
+	}
+
+	if len(recordings) > 0 {
+		t.log.Printf("getting details for %d recording airings\n", len(recordings))
+		response, err = batch(uri, recordings)
+		if err != nil {
+			t.log.Println(err)
+			return err
+		}
+	} else {
+		err = fmt.Errorf("no recording airings returned")
+		t.log.Println(err)
+		return err
+	}
+
+	var recordingDetails map[string]tabloapi.Recording
+	err = json.Unmarshal(response, &recordingDetails)
+	if err != nil {
+		t.log.Println(err)
+		return err
+	}
+	if len(recordingDetails) > 0 {
+		t.log.Printf("adding %d recording airings to database\n", len(recordingDetails))
+		err = t.database.UpsertRecordings(recordingDetails)
+		if err != nil {
+			t.log.Println(err)
+			return err
+		}
+	} else {
+		err = fmt.Errorf("no recording airing details returned")
+		t.log.Println(err)
+		return err
+	}
+
+	t.log.Println("recording airings updated")
+	return nil
+}
+
+func (t *Tablo) updateConflicts() error {
 	t.log.Println("not yet implemented")
 	return nil
 }
 
 func batch(uri string, input []string) ([]byte, error) {
-	// fmt.Printf("batch processing %d items\n", len(input))
-	var data strings.Builder
 	var output []byte
 	output = append(output, byte('{'))
-	data.WriteRune('[')
-	for i, v := range input {
-		data.WriteString("\"" + v + "\"")
-		if (i+1)%50 == 0 {
-			data.WriteRune(']')
-			// fmt.Println(data.String())
-			tempOutput, err := post(uri+"/batch", data.String())
-			if err != nil {
-				// fmt.Println(err)
-				return nil, err
-			}
-			trimmedOutput := tempOutput[1 : len(tempOutput)-1]
-			// fmt.Println(string(trimmedOutput))
-			output = append(output, trimmedOutput...)
-			output = append(output, byte(','))
-			data.Reset()
-			data.WriteRune('[')
-		} else {
-			data.WriteRune(',')
-		}
-	}
 
-	if len(data.String()) > 1 {
-		data.WriteRune(']')
-		// fmt.Println(data.String())
-		tempOutput, err := post(uri+"/batch", data.String())
+	for i := 0; i < len(input); i += 50 {
+		j := i + 50
+		if j > len(input) {
+			j = len(input)
+		}
+		data := "[\"" + strings.Join(input[i:j], "\",\"") + "\"]"
+		tempOutput, err := post(uri+"/batch", data)
 		if err != nil {
 			return nil, err
 		}
-
 		output = append(output, tempOutput[1:len(tempOutput)-1]...)
+		if j < len(input) {
+			output = append(output, byte(','))
+		} else {
+			output = append(output, byte('}'))
+		}
 	}
 
-	output = append(output, byte('}'))
-	// fmt.Println(string(output))
 	return output, nil
 }
 
 func post(uri string, data string) ([]byte, error) {
 	resp, err := http.Post(uri, "application/json", bytes.NewBuffer([]byte(data)))
 	if err != nil {
-		return nil, err
+		if resp != nil {
+			resp.Body.Close()
+		}
+		fmt.Printf("Error connecting to %s. Waiting 30 seconds to retry\n", uri)
+		time.Sleep(30 * time.Second)
+		resp, err = http.Post(uri, "application/json", bytes.NewBuffer([]byte(data)))
+		if err != nil {
+			if resp != nil {
+				resp.Body.Close()
+			}
+			fmt.Printf("http.Post error: %v\n", err)
+			return nil, err
+		}
 	}
 
 	defer resp.Body.Close()
@@ -485,7 +653,19 @@ func post(uri string, data string) ([]byte, error) {
 func get(uri string) ([]byte, error) {
 	resp, err := http.Get(uri)
 	if err != nil {
-		return nil, err
+		if resp != nil {
+			resp.Body.Close()
+		}
+		fmt.Printf("Error connecting to %s. Waiting 30 seconds to retry\n", uri)
+		time.Sleep(30 * time.Second)
+		resp, err = http.Get(uri)
+		if err != nil {
+			if resp != nil {
+				resp.Body.Close()
+			}
+			fmt.Printf("http.Get error: %v\n", err)
+			return nil, err
+		}
 	}
 
 	defer resp.Body.Close()
