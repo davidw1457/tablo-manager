@@ -30,6 +30,14 @@ type QueueRecord struct {
 	ExportPath string
 }
 
+type conflictRecord struct {
+	airingID int
+	showID   int
+	airDate  int
+	duration int
+	endDate  int
+}
+
 func New(ipAddress string, name string, serverID string, directory string) (TabloDB, error) {
 	var tabloDB TabloDB
 	logFile, err := os.OpenFile(directory+string(os.PathSeparator)+"main.log", os.O_WRONLY|os.O_APPEND|os.O_CREATE, userRWX)
@@ -1116,6 +1124,125 @@ func (db *TabloDB) UpdateSpace(total int64, free int64) error {
 	}
 
 	return nil
+}
+
+func (db *TabloDB) UpdateConflicts() error {
+	rows, err := db.database.Query(queries["selectConflicts"])
+	if err != nil {
+		db.log.Println(queries["selectConflicts"])
+		db.log.Println(err)
+		return err
+	}
+
+	var conflicts []conflictRecord
+	for rows.Next() {
+		var conflict conflictRecord
+		err = rows.Scan(&conflict.airingID, &conflict.showID, &conflict.airDate, &conflict.duration)
+		if err != nil {
+			db.log.Println(err)
+			return err
+		}
+		conflict.endDate = conflict.airDate + conflict.duration
+		conflicts = append(conflicts, conflict)
+	}
+
+	rows.Close()
+
+	if len(conflicts) == 0 {
+		db.log.Println("No conflicts")
+		return nil
+	}
+
+	rows, err = db.database.Query(queries["selectScheduled"])
+	if err != nil {
+		db.log.Println(queries["selectScheduled"])
+		db.log.Println(err)
+		return err
+	}
+
+	var scheduled []*conflictRecord
+	for rows.Next() {
+		schedule := new(conflictRecord)
+		err = rows.Scan(&schedule.airingID, &schedule.showID, &schedule.airDate, &schedule.duration)
+		if err != nil {
+			db.log.Println(err)
+			return err
+		}
+		schedule.endDate = schedule.airDate + schedule.duration
+		scheduled = append(scheduled, schedule)
+	}
+
+	rows.Close()
+
+	var conflictValues []string
+	for _, c := range conflicts {
+		conflictValue := createConflictValue(c)
+		conflictValues = append(conflictValues, conflictValue)
+		for i, s := range scheduled {
+			if s == nil {
+				continue
+			}
+			if isOverlapping(c, *s) {
+				conflictValue := createConflictValue(*s)
+				conflictValues = append(conflictValues, conflictValue)
+				scheduled[i] = nil
+			}
+		}
+	}
+
+	if len(conflictValues) == 0 {
+		err = fmt.Errorf("no conflicts in insert values")
+		fmt.Println(err)
+		return err
+	}
+
+	_, err = db.database.Exec(queries["deleteConflicts"])
+	if err != nil {
+		fmt.Println(queries["deleteConflicts"])
+		fmt.Println(err)
+		return err
+	}
+
+	qryInsertConflicts := fmt.Sprintf(templates["insertConflicts"], strings.Join(conflictValues, ","))
+	_, err = db.database.Exec(qryInsertConflicts)
+	if err != nil {
+		fmt.Println(qryInsertConflicts)
+		fmt.Println(err)
+		return err
+	}
+
+	return nil
+}
+
+func isOverlapping(c, s conflictRecord) bool {
+	if c.airDate == s.airDate || c.endDate == s.endDate {
+		// both shows start or end at the same time
+		return true
+	} else if c.airDate > s.airDate && c.airDate < s.endDate {
+		// The first show start time is during the second show
+		return true
+	} else if c.endDate > s.airDate && c.endDate < s.endDate {
+		// The first show end time is during the second show
+		return true
+	} else if c.airDate < s.airDate && c.endDate > s.endDate {
+		// The first show wholly encompasses the second show
+		return true
+	}
+	return false
+}
+
+func createConflictValue(c conflictRecord) string {
+	var conflictValue strings.Builder
+	conflictValue.WriteRune('(')
+	conflictValue.WriteString(strconv.Itoa(c.airingID))
+	conflictValue.WriteRune(',')
+	conflictValue.WriteString(strconv.Itoa(c.showID))
+	conflictValue.WriteRune(',')
+	conflictValue.WriteString(strconv.Itoa(c.airDate))
+	conflictValue.WriteRune(',')
+	conflictValue.WriteString(strconv.Itoa(c.endDate))
+	conflictValue.WriteRune(')')
+	return conflictValue.String()
 }
 
 func getEpisodeID(showID, season string, episode, airdate int) string {

@@ -10,26 +10,31 @@ import (
 	"tablo-manager/tablo"
 )
 
-// TODO: Populate conflicts table
-// TODO: Populate priority table
 // TODO: Populate exported table
-// TODO: Populate showFilter table
 // TODO: Create export function
 // TODO: Figure out best way to purge outdated data from system
 //       (e.g. remove showIDs that do not contain airings or recordings & are not scheduled)
+// TODO: Populate showFilter table
+// TODO: Populate priority table
 
 const userRWX = 0700 // unix-style octal permission
 
 func main() {
 
-	databaseDir, err := os.UserHomeDir()
-	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
+	var databaseDir string
+	if len(os.Args) > 1 {
+		databaseDir = os.Args[1]
+	} else {
+		var err error
+		databaseDir, err = os.UserHomeDir()
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+		databaseDir += string(os.PathSeparator) + ".tablomanager"
 	}
-	databaseDir += string(os.PathSeparator) + ".tablomanager"
 
-	_, err = os.Stat(databaseDir)
+	_, err := os.Stat(databaseDir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			err = os.MkdirAll(databaseDir, userRWX)

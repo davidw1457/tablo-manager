@@ -97,7 +97,7 @@ CREATE TABLE episode (
   showID          INT NOT NULL,
   title           TEXT,
   descript        TEXT,
-  episode      INT,
+  episode         INT,
   season          TEXT,
   seasonType      TEXT,
   originalAirDate INT,
@@ -182,7 +182,7 @@ CREATE TABLE showPriority (
   FOREIGN KEY (showID) REFERENCES show(showID) ON DELETE CASCADE
 );
 
--- Create conflicts table
+-- Create scheduleConflicts table
 CREATE TABLE scheduleConflicts (
   airingID INT NOT NULL PRIMARY KEY,
   showID   INT NOT NULL,
@@ -201,7 +201,7 @@ CREATE TABLE exported (
 CREATE TABLE showFilter (
   showID INT NOT NULL PRIMARY KEY,
   ignore INT,
-  FOREIGN KEY (showID) REFERENCES show(showID)
+  FOREIGN KEY (showID) REFERENCES show(showID) ON DELETE CASCADE
 )`,
 	// Select all records from the queue table
 	"selectQueue": `
@@ -234,6 +234,31 @@ SELECT
   dbVer
 FROM
   systemInfo;`,
+	// Get conflicts from airing
+	"selectConflicts": `
+SELECT
+  airingID,
+  showID,
+  airDate,
+  duration
+FROM
+  airing
+WHERE
+  scheduled = 'conflict';`,
+	// Get scheduled from airing
+	"selectScheduled": `
+SELECT
+  airingID,
+  showID,
+  airDate,
+  duration
+FROM
+  airing
+WHERE
+  scheduled = 'scheduled';`,
+	// Delete all values from conflicts
+	"deleteConflicts": `
+DELETE FROM scheduleConflicts;`,
 }
 
 var templates = map[string]string{
@@ -509,8 +534,18 @@ SET
   privateIP = '%s';`,
 	// Update space in systemInfo
 	"updateSpace": `
-  UPDATE systemInfo
-  SET
-    totalSize = %d,
-    freeSize = %d;`,
+UPDATE systemInfo
+SET
+  totalSize = %d,
+  freeSize = %d;`,
+	// Insert conflicts
+	"insertConflicts": `
+INSERT INTO scheduleConflicts (
+  airingID,
+  showID,
+  airDate,
+  endDate
+)
+VALUES
+%s;`,
 }

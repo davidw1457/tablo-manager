@@ -367,7 +367,7 @@ func (t *Tablo) updateRecordings() error {
 		}
 	}
 
-	t.log.Println("updating recordings")
+	t.log.Println("updating recording airings")
 	err = t.updateRecordingAirings()
 	if err != nil {
 		t.log.Println(err)
@@ -605,9 +605,7 @@ func (t *Tablo) updateRecordingAirings() error {
 }
 
 func (t *Tablo) updateConflicts() error {
-	// TODO: Create table of conflicts
-	t.log.Println("not yet implemented")
-	return nil
+	return t.database.UpdateConflicts()
 }
 
 func (t *Tablo) updateSpace() error {
