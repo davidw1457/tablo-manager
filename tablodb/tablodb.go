@@ -30,6 +30,17 @@ type QueueRecord struct {
 	ExportPath string
 }
 
+type ScheduledAiringRecord struct {
+	AiringID     int
+	AirDate      int
+	ShowType     string
+	ShowTitle    string
+	Season       string
+	Episode      int
+	EpisodeTitle string
+	ReleaseYear  int
+}
+
 type conflictRecord struct {
 	airingID int
 	showID   int
@@ -178,9 +189,20 @@ func (db *TabloDB) Enqueue(action string, details string, exportPath string) err
 	db.log.Printf("enqueueing '%s' '%s' '%s'\n", action, details, exportPath)
 	var qry string
 	if details == "" {
-		qry = fmt.Sprintf(templates["insertQueuePriority"], action, details, exportPath)
+		qrySelectQueueRecordByAction := fmt.Sprintf(templates["selectQueueRecordByAction"], sanitizeSqlString(action))
+		var count int
+		err := db.database.QueryRow(qrySelectQueueRecordByAction).Scan(&count)
+		if err != nil {
+			db.log.Println(qry)
+			db.log.Println(err)
+			return err
+		} else if count == 0 {
+			qry = fmt.Sprintf(templates["insertQueuePriority"], sanitizeSqlString(action), sanitizeSqlString(details), sanitizeSqlString(exportPath))
+		} else {
+			return nil
+		}
 	} else {
-		qry = fmt.Sprintf(templates["insertQueue"], action, details, exportPath)
+		qry = fmt.Sprintf(templates["insertQueue"], sanitizeSqlString(action), sanitizeSqlString(details), sanitizeSqlString(exportPath))
 	}
 	_, err := db.database.Exec(qry)
 	if err != nil {
@@ -1211,6 +1233,112 @@ func (db *TabloDB) UpdateConflicts() error {
 		return err
 	}
 
+	return nil
+}
+
+func (db *TabloDB) GetExported() ([]string, error) {
+	db.log.Println("selecting exported values")
+
+	rows, err := db.database.Query(queries["selectExported"])
+	if err != nil {
+		db.log.Println(queries["selectExported"])
+		db.log.Println(err)
+		return nil, err
+	}
+
+	var exported []string
+	for rows.Next() {
+		var export string
+		err = rows.Scan(&export)
+		if err != nil {
+			db.log.Println(err)
+			return nil, err
+		}
+
+		exported = append(exported, export)
+	}
+
+	db.log.Printf("%d exported values selected\n", len(exported))
+	return exported, nil
+}
+
+func (db *TabloDB) DeleteExported(toDelete []string) error {
+	db.log.Printf("removing %d missing exports\n", len(toDelete))
+
+	var sanitizedToDelete []string
+	for _, v := range toDelete {
+		sanitizedToDelete = append(sanitizedToDelete, sanitizeSqlString(v))
+	}
+
+	qryDeleteExported := fmt.Sprintf(templates["deleteExported"], strings.Join(sanitizedToDelete, "','"))
+	_, err := db.database.Exec(qryDeleteExported)
+	if err != nil {
+		db.log.Println(qryDeleteExported)
+		db.log.Println(err)
+		return err
+	}
+
+	db.log.Println("missing exports removed")
+	return nil
+}
+
+func (db *TabloDB) InsertExported(toInsert []string) error {
+	db.log.Printf("inserting %d exported values\n", len(toInsert))
+
+	var sanitizedToInsert []string
+	for _, v := range toInsert {
+		sanitizedToInsert = append(sanitizedToInsert, sanitizeSqlString(v))
+	}
+
+	qryInsertExported := fmt.Sprintf(templates["insertExported"], strings.Join(sanitizedToInsert, "'),('"))
+	_, err := db.database.Exec(qryInsertExported)
+	if err != nil {
+		db.log.Println(qryInsertExported)
+		db.log.Println(err)
+		return err
+	}
+
+	db.log.Println("exported values inserted")
+	return nil
+}
+
+func (db *TabloDB) GetScheduledAirings() ([]ScheduledAiringRecord, error) {
+	db.log.Println("getting all scheduled airings")
+
+	rows, err := db.database.Query(queries["selectScheduledAirings"])
+	if err != nil {
+		db.log.Println(err)
+		return nil, err
+	}
+
+	var airings []ScheduledAiringRecord
+	for rows.Next() {
+		var airing ScheduledAiringRecord
+		err = rows.Scan(&airing.AiringID, &airing.ShowType, &airing.ShowTitle, &airing.Season, &airing.Episode, &airing.AirDate, &airing.EpisodeTitle, &airing.ReleaseYear)
+		if err != nil {
+			db.log.Println(err)
+			return nil, err
+		}
+
+		releaseDate := time.Unix(int64(airing.ReleaseYear), 0)
+		airing.ReleaseYear = releaseDate.Year()
+		airings = append(airings, airing)
+	}
+
+	return airings, nil
+}
+
+func (db *TabloDB) PurgeExpiredAirings() error {
+	db.log.Println("Deleting expired airings")
+	now := time.Now().Unix()
+	qryDeleteExpiredAirings := fmt.Sprintf(templates["deleteExpiredAirings"], now)
+	_, err := db.database.Exec(qryDeleteExpiredAirings)
+	if err != nil {
+		db.log.Println(qryDeleteExpiredAirings)
+		db.log.Println(err)
+		return err
+	}
+	db.log.Println("Expired airings deleted")
 	return nil
 }
 

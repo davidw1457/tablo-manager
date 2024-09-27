@@ -194,7 +194,7 @@ CREATE TABLE scheduleConflicts (
 
 -- Create exported table
 CREATE TABLE exported (
-  fullPath TEXT NOT NULL
+  fullPath TEXT NOT NULL PRIMARY KEY
 );
 
 -- Create filter table
@@ -259,6 +259,29 @@ WHERE
 	// Delete all values from conflicts
 	"deleteConflicts": `
 DELETE FROM scheduleConflicts;`,
+	// Select exported
+	"selectExported": `
+SELECT
+  fullPath
+FROM
+  exported;`,
+	// Select all scheduled airings
+	"selectScheduledAirings": `
+SELECT
+  a.airingID,
+  s.showType,
+  s.title AS showTitle,
+  COALESCE(e.season, '') AS season,
+  COALESCE(e.episode, 0) AS episode,
+  a.airDate,
+  COALESCE(e.title, '') AS episodeTitle,
+  COALESCE(s.releaseDate, 0) as releaseDate
+FROM
+  airing AS a
+  INNER JOIN show AS s ON a.showID = s.showID
+  LEFT JOIN episode AS e ON a.episodeID = e.episodeID
+WHERE
+  scheduled IN ('scheduled','conflict');`,
 }
 
 var templates = map[string]string{
@@ -548,4 +571,29 @@ INSERT INTO scheduleConflicts (
 )
 VALUES
 %s;`,
+	// Delete exported
+	"deleteExported": `
+DELETE FROM exported
+WHERE fullPath in ('%s');`,
+	// Insert exported
+	"insertExported": `
+INSERT INTO exported (
+  fullPath
+)
+VALUES
+('%s')
+ON CONFLICT DO NOTHING;`,
+	// Select query record with specific action
+	"selectQueueRecordByAction": `
+SELECT
+  count(*)
+FROM
+  queue
+WHERE
+  action = '%s';`,
+	// Delete old airings
+	"deleteExpiredAirings": `
+DELETE FROM airing
+WHERE
+  airDate < %d;`,
 }

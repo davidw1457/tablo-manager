@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -19,6 +20,11 @@ import (
 
 const tabloWebUri = "https://api.tablotv.com/assocserver/getipinfo/"
 const userRWX = 0700 // unix-style octal permission
+var showTypeSubpath = map[string]string{
+	"series": "/series/episodes",
+	"movies": "/movies/airings",
+	"sports": "/sports/events",
+}
 
 type Tablo struct {
 	ipAddress             string
@@ -31,6 +37,12 @@ type Tablo struct {
 	queue                 []tablodb.QueueRecord
 	log                   *log.Logger
 	defaultExportPath     string
+}
+
+type exportAiring struct {
+	airingID   int
+	showType   string
+	exportFile string
 }
 
 func New(databaseDir string) ([]*Tablo, error) {
@@ -250,39 +262,56 @@ func (t *Tablo) ProcessQueue() error {
 
 func (t *Tablo) updateGuide() error {
 	t.log.Println("updating channels")
-	err := t.updateChannels("/guide/channels")
-	if err != nil {
-		t.log.Println(err)
-		return err
+	unscheduledCount := 1
+	for unscheduledCount > 0 {
+		err := t.database.PurgeExpiredAirings()
+		if err != nil {
+			t.log.Println(err)
+			return err
+		}
+		err = t.updateChannels("/guide/channels")
+		if err != nil {
+			t.log.Println(err)
+			return err
+		}
+		t.log.Println("updating shows")
+		err = t.updateShows("/guide/shows")
+		if err != nil {
+			t.log.Println(err)
+			return err
+		}
+		t.log.Println("updating airings")
+		err = t.updateAirings("/guide/airings")
+		if err != nil {
+			t.log.Println(err)
+			return err
+		}
+		t.log.Println("updating conflicts")
+		err = t.updateConflicts()
+		if err != nil {
+			t.log.Println(err)
+			return err
+		}
+		t.log.Println("updating space")
+		err = t.updateSpace()
+		if err != nil {
+			t.log.Println(err)
+			return err
+		}
+		if t.defaultExportPath != "" {
+			t.log.Println("updating exported files")
+			unscheduledCount, err = t.updateExported("")
+			if err != nil {
+				t.log.Println(err)
+				return err
+			}
+		} else {
+			unscheduledCount = 0
+		}
 	}
-	t.log.Println("updating shows")
-	err = t.updateShows("/guide/shows")
-	if err != nil {
-		t.log.Println(err)
-		return err
-	}
-	t.log.Println("updating airings")
-	err = t.updateAirings("/guide/airings")
-	if err != nil {
-		t.log.Println(err)
-		return err
-	}
-	t.log.Println("updating conflicts")
-	err = t.updateConflicts()
-	if err != nil {
-		t.log.Println(err)
-		return err
-	}
-	t.log.Println("updating space")
-	err = t.updateSpace()
-	if err != nil {
-		t.log.Println(err)
-		return err
-	}
-
 	t.guideLastUpdated = time.Now()
 	t.scheduledLastUpdated = time.Now()
-	err = t.database.UpdateGuideLastUpdated(t.guideLastUpdated)
+	err := t.database.UpdateGuideLastUpdated(t.guideLastUpdated)
 	if err != nil {
 		t.log.Println(err)
 		return err
@@ -298,48 +327,66 @@ func (t *Tablo) updateGuide() error {
 
 func (t *Tablo) updateScheduled() error {
 	t.log.Println("updating channels")
-	err := t.updateChannels("/guide/channels")
-	if err != nil {
-		t.log.Println(err)
-		return err
-	}
-	t.log.Println("updating shows")
-	err = t.updateShows("/guide/shows")
-	if err != nil {
-		t.log.Println(err)
-		return err
-	}
-	t.log.Println("updating scheduled airings")
-	err = t.updateAirings("/guide/airings?state=scheduled")
-	if err != nil {
-		t.log.Println(err)
-		if err.Error() != "no airings returned" {
+	unscheduledCount := 1
+	for unscheduledCount > 0 {
+		err := t.database.PurgeExpiredAirings()
+		if err != nil {
+			t.log.Println(err)
 			return err
 		}
-	}
-	t.log.Println("updating conflicted airings")
-	err = t.updateAirings("/guide/airings?state=conflicted")
-	if err != nil {
-		t.log.Println(err)
-		if err.Error() != "no airings returned" {
+		err = t.updateChannels("/guide/channels")
+		if err != nil {
+			t.log.Println(err)
 			return err
 		}
-	}
-	t.log.Println("updating conflicts")
-	err = t.updateConflicts()
-	if err != nil {
-		t.log.Println(err)
-		return err
-	}
-	t.log.Println("updating space")
-	err = t.updateSpace()
-	if err != nil {
-		t.log.Println(err)
-		return err
+		t.log.Println("updating shows")
+		err = t.updateShows("/guide/shows")
+		if err != nil {
+			t.log.Println(err)
+			return err
+		}
+		t.log.Println("updating scheduled airings")
+		err = t.updateAirings("/guide/airings?state=scheduled")
+		if err != nil {
+			t.log.Println(err)
+			if err.Error() != "no airings returned" {
+				return err
+			}
+		}
+		t.log.Println("updating conflicted airings")
+		err = t.updateAirings("/guide/airings?state=conflicted")
+		if err != nil {
+			t.log.Println(err)
+			if err.Error() != "no airings returned" {
+				return err
+			}
+		}
+		t.log.Println("updating conflicts")
+		err = t.updateConflicts()
+		if err != nil {
+			t.log.Println(err)
+			return err
+		}
+		t.log.Println("updating space")
+		err = t.updateSpace()
+		if err != nil {
+			t.log.Println(err)
+			return err
+		}
+		if t.defaultExportPath != "" {
+			t.log.Println("updating exported files")
+			unscheduledCount, err = t.updateExported("")
+			if err != nil {
+				t.log.Println(err)
+				return err
+			}
+		} else {
+			unscheduledCount = 0
+		}
 	}
 
 	t.scheduledLastUpdated = time.Now()
-	err = t.database.UpdateScheduledLastUpdated(t.scheduledLastUpdated)
+	err := t.database.UpdateScheduledLastUpdated(t.scheduledLastUpdated)
 	if err != nil {
 		t.log.Println(err)
 		return err
@@ -640,6 +687,199 @@ func (t *Tablo) updateSpace() error {
 	return nil
 }
 
+func (t *Tablo) updateExported(alternatePath string) (int, error) {
+	t.log.Println("updating exported records")
+	if t.defaultExportPath == "" && alternatePath == "" {
+		err := fmt.Errorf("no export path specified")
+		t.log.Println(err)
+		return 0, err
+	}
+
+	path := t.defaultExportPath
+	if alternatePath != "" {
+		path = alternatePath
+	}
+
+	currentExported, err := t.database.GetExported()
+	if err != nil {
+		t.log.Println(err)
+		return 0, err
+	}
+
+	exportedMissing, exportedFound, err := checkExported(currentExported, path)
+	if err != nil {
+		t.log.Println(err)
+		return 0, err
+	}
+	if len(exportedMissing) > 0 {
+		err = t.database.DeleteExported(exportedMissing)
+		if err != nil {
+			t.log.Println(err)
+			return 0, err
+		}
+	}
+
+	var unscheduledCount int
+	if len(exportedFound) > 0 {
+		err = t.database.InsertExported(exportedFound)
+		if err != nil {
+			t.log.Println(err)
+			return 0, err
+		}
+
+		exportedFoundMap := make(map[string]bool)
+		for _, e := range exportedFound {
+			exportedFoundMap[e] = true
+		}
+
+		scheduled, err := t.database.GetScheduledAirings()
+		if err != nil {
+			t.log.Println(err)
+			return 0, err
+		}
+
+		toExportFileNames := t.getExportFilenames(scheduled)
+
+		var toUnschedule []exportAiring
+		for _, f := range toExportFileNames {
+			if exportedFoundMap[f.exportFile] {
+				toUnschedule = append(toUnschedule, f)
+			}
+		}
+
+		if len(toUnschedule) > 0 {
+			unscheduledCount, err = t.unscheduleAirings(toUnschedule)
+			if err != nil {
+				t.log.Println(err)
+				return unscheduledCount, err
+			}
+		}
+	}
+
+	t.log.Println("exported updated")
+	return unscheduledCount, nil
+}
+
+func (t *Tablo) getExportFilenames(airings []tablodb.ScheduledAiringRecord) []exportAiring {
+	var exportFilenames []exportAiring
+	for _, a := range airings {
+		var export exportAiring
+		export.airingID = a.AiringID
+		export.showType = a.ShowType
+		export.exportFile = getExportFilename(a, t.defaultExportPath)
+		exportFilenames = append(exportFilenames, export)
+	}
+
+	return exportFilenames
+}
+
+func (t *Tablo) unscheduleAirings(airings []exportAiring) (int, error) {
+	t.log.Printf("unscheduling %d airings", len(airings))
+	skipped := 0
+	for i, a := range airings {
+		uri := "http://" + t.ipAddress + ":8885"
+		subpath := "/guide" + showTypeSubpath[a.showType] + "/" + strconv.Itoa(a.airingID)
+		resp, err := patch(uri+subpath, `{"scheduled": false}`)
+		if err != nil {
+			t.log.Println(err)
+			return i, err
+		}
+
+		var airing tabloapi.Airing
+		err = json.Unmarshal(resp, &airing)
+		if err != nil {
+			t.log.Println(err)
+			return i, err
+		}
+		if airing.Error.Code == "object_not_found" {
+			t.log.Printf("%d not found\n", a.airingID)
+			skipped++
+		} else if airing.Schedule.State != "unscheduled" {
+			err = fmt.Errorf("unschedule failed for %d", a.airingID)
+			t.log.Println(err)
+			return i, err
+		}
+	}
+	t.log.Printf("%d airings unscheduled", len(airings)-skipped)
+	return len(airings) - skipped, nil
+}
+
+func getExportFilename(airing tablodb.ScheduledAiringRecord, path string) string {
+	sep := string(os.PathSeparator)
+	switch airing.ShowType {
+	case "series":
+		showTitle := utils.SanitizeFileString(airing.ShowTitle)
+		var season string
+		if len(airing.Season) == 1 {
+			season = "0" + utils.SanitizeFileString(airing.Season)
+		} else if airing.Season == "" {
+			season = "00"
+		} else {
+			season = utils.SanitizeFileString(airing.Season)
+		}
+		episode := fmt.Sprintf("%02d", airing.Episode)
+		if episode == "00" {
+			airDate := time.Unix(int64(airing.AirDate), 0)
+			episode = airDate.Format("200601021504")
+		}
+		episodeTitle := utils.SanitizeFileString(airing.EpisodeTitle)
+		return path + sep + "TV" + sep + showTitle + sep + "Season " + season + sep + showTitle + " - s" + season + "e" + episode + " - " + episodeTitle + ".mp4"
+	case "movies":
+		showTitle := utils.SanitizeFileString(airing.ShowTitle)
+		year := strconv.Itoa(airing.ReleaseYear)
+		return path + sep + "Movies" + sep + showTitle + " - " + year + ".mp4"
+	case "sports":
+		showTitle := utils.SanitizeFileString(airing.ShowTitle)
+		var season string
+		if airing.Season == "" {
+			season = "00"
+		} else {
+			season = utils.SanitizeFileString(airing.Season)
+		}
+		episodeTitle := utils.SanitizeFileString(airing.EpisodeTitle)
+		return path + sep + "Sports" + sep + showTitle + sep + showTitle + " - " + season + " - " + episodeTitle + ".mp4"
+	default:
+		return ""
+	}
+}
+
+func checkExported(toCheck []string, path string) ([]string, []string, error) {
+	var exportedMissing []string
+	for _, f := range toCheck {
+		switch _, err := os.Stat(f); {
+		case errors.Is(err, os.ErrNotExist):
+			exportedMissing = append(exportedMissing, f)
+		case err != nil:
+			return nil, nil, err
+		}
+	}
+
+	var exportedFound []string
+	sep := string(os.PathSeparator)
+	pathQueue := []string{path + sep + "Movies", path + sep + "Sports", path + sep + "TV"}
+	for len(pathQueue) > 0 {
+		curPath := pathQueue[0]
+		files, err := os.ReadDir(curPath)
+		if err != nil {
+			return nil, nil, err
+		}
+		for _, f := range files {
+			if f.IsDir() {
+				pathQueue = append(pathQueue, curPath+sep+f.Name())
+			} else {
+				exportedFound = append(exportedFound, curPath+sep+f.Name())
+			}
+		}
+		if len(pathQueue) > 1 {
+			pathQueue = pathQueue[1:]
+		} else {
+			pathQueue = make([]string, 0)
+		}
+	}
+
+	return exportedMissing, exportedFound, nil
+}
+
 func batch(uri string, input []string) ([]byte, error) {
 	var output []byte
 	output = append(output, byte('{'))
@@ -665,6 +905,43 @@ func batch(uri string, input []string) ([]byte, error) {
 	return output, nil
 }
 
+func patch(uri string, data string) ([]byte, error) {
+	client := &http.Client{}
+
+	req, err := http.NewRequest(http.MethodPatch, uri, bytes.NewBuffer([]byte(data)))
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		if resp != nil {
+			resp.Body.Close()
+		}
+		fmt.Printf("Error connecting to %s. Waiting 30 seconds to retry\n", uri)
+		time.Sleep(30 * time.Second)
+		resp, err = client.Do(req)
+		if err != nil {
+			if resp != nil {
+				resp.Body.Close()
+			}
+			fmt.Printf("http.PATCH error: %v\n", err)
+			return nil, err
+		}
+	}
+
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	return body, nil
+}
+
 func post(uri string, data string) ([]byte, error) {
 	resp, err := http.Post(uri, "application/json", bytes.NewBuffer([]byte(data)))
 	if err != nil {
@@ -678,7 +955,7 @@ func post(uri string, data string) ([]byte, error) {
 			if resp != nil {
 				resp.Body.Close()
 			}
-			fmt.Printf("http.Post error: %v\n", err)
+			fmt.Printf("http.POST error: %v\n", err)
 			return nil, err
 		}
 	}
@@ -706,7 +983,7 @@ func get(uri string) ([]byte, error) {
 			if resp != nil {
 				resp.Body.Close()
 			}
-			fmt.Printf("http.Get error: %v\n", err)
+			fmt.Printf("http.GET error: %v\n", err)
 			return nil, err
 		}
 	}

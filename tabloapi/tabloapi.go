@@ -89,6 +89,7 @@ type Airing struct {
 	Airing_Details AiringDetails
 	Schedule       AiringScheduleDetails
 	Event          EventDetails
+	Error          RequestError
 }
 
 type EpisodeDetails struct {
@@ -158,4 +159,10 @@ type ErrorDetails struct {
 type Drive struct {
 	Size int64
 	Free int64
+}
+
+type RequestError struct {
+	Code        string
+	Details     int
+	Description string
 }
