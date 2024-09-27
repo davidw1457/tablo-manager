@@ -817,6 +817,7 @@ func (db *TabloDB) UpsertRecordings(recordings map[string]tabloapi.Recording) er
 	var episodeValues []string
 	var episodeTeamValues []string
 	var errorValues []string
+	var recordingIDs []string
 
 	for _, r := range recordings {
 		if r.Object_ID == 0 {
@@ -967,6 +968,8 @@ func (db *TabloDB) UpsertRecordings(recordings map[string]tabloapi.Recording) er
 		recordingValue.WriteRune(')')
 		recordingValues = append(recordingValues, recordingValue.String())
 
+		recordingIDs = append(recordingIDs, strconv.Itoa(r.Object_ID))
+
 		if r.Video_Details.State == "failed" || !r.Video_Details.Clean || r.Video_Details.ComSkip.State != "none" {
 			var comSkipError = "null"
 			if r.Video_Details.ComSkip.Error != nil {
@@ -1079,6 +1082,15 @@ func (db *TabloDB) UpsertRecordings(recordings map[string]tabloapi.Recording) er
 	_, err := db.database.Exec(qryUpsertRecording)
 	if err != nil {
 		db.log.Println(qryUpsertRecording)
+		db.log.Println(err)
+		return err
+	}
+
+	db.log.Println("purging deleted recordings")
+	qryDeleteRemovedRecordings := fmt.Sprintf(templates["deleteRemovedRecordings"], strings.Join(recordingIDs, "),("))
+	_, err = db.database.Exec(qryDeleteRemovedRecordings)
+	if err != nil {
+		db.log.Println(qryDeleteRemovedRecordings)
 		db.log.Println(err)
 		return err
 	}

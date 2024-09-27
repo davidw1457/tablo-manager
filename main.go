@@ -10,7 +10,6 @@ import (
 	"tablo-manager/tablo"
 )
 
-// TODO: Auto-deschedule exported shows
 // TODO: Create export function
 // TODO: Figure out best way to purge outdated data from system
 //       (e.g. remove showIDs that do not contain airings or recordings & are not scheduled)
@@ -94,7 +93,7 @@ func main() {
 				}
 			}
 		}
-		mainLog.Println("completed process loop. pausing for 5 minutes")
-		time.Sleep(5 * time.Minute)
+		mainLog.Println("completed process loop. pausing for 15 minutes")
+		time.Sleep(15 * time.Minute)
 	}
 }

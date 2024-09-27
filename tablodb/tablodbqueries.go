@@ -202,7 +202,7 @@ CREATE TABLE showFilter (
   showID INT NOT NULL PRIMARY KEY,
   ignore INT,
   FOREIGN KEY (showID) REFERENCES show(showID) ON DELETE CASCADE
-)`,
+);`,
 	// Select all records from the queue table
 	"selectQueue": `
 SELECT
@@ -596,4 +596,22 @@ WHERE
 DELETE FROM airing
 WHERE
   airDate < %d;`,
+	// Delete removed recordings
+	"deleteRemovedRecordings": `
+DROP TABLE IF EXISTS tempRecordingID;
+CREATE TABLE tempRecordingID (
+  recordingID INT NOT NULL PRIMARY KEY
+);
+INSERT INTO tempRecordingID (
+  recordingID
+)
+VALUES
+(%s);
+DELETE recording
+WHERE recordingID IN (
+SELECT r.recordingID
+FROM recording r
+LEFT JOIN tempRecordingID t ON r.recordingID = t.recordingID
+WHERE t.recordingID IS NULL);
+DROP TABLE IF EXISTS tempRecordingID;`,
 }

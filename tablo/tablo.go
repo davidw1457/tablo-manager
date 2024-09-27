@@ -254,6 +254,10 @@ func (t *Tablo) ProcessQueue() error {
 			t.log.Println(err)
 			return err
 		}
+		if t.NeedUpdate() {
+			t.log.Println("aborting queue processing to queue update")
+			break
+		}
 	}
 	t.queue = nil
 	t.log.Println("all queue records processed")
