@@ -282,6 +282,11 @@ FROM
   LEFT JOIN episode AS e ON a.episodeID = e.episodeID
 WHERE
   scheduled IN ('scheduled','conflict');`,
+	// update scheduled airings to none
+	"updateAiringScheduledToNone": `
+UPDATE airing
+SET scheduled = 'none'
+WHERE scheduled in ('conflict','scheduled');`,
 }
 
 var templates = map[string]string{
@@ -607,11 +612,20 @@ INSERT INTO tempRecordingID (
 )
 VALUES
 (%s);
-DELETE recording
-WHERE recordingID IN (
-SELECT r.recordingID
-FROM recording r
-LEFT JOIN tempRecordingID t ON r.recordingID = t.recordingID
-WHERE t.recordingID IS NULL);
+DELETE FROM recording
+WHERE
+  recordingID IN (
+    SELECT
+      r.recordingID
+    FROM
+      recording r
+      LEFT JOIN tempRecordingID t ON r.recordingID = t.recordingID
+    WHERE
+      t.recordingID IS NULL
+  );
 DROP TABLE IF EXISTS tempRecordingID;`,
+	// Delete airing by airingID
+	"deleteAiringByID": `
+DELETE airing
+WHERE airingID IN (%s);`,
 }

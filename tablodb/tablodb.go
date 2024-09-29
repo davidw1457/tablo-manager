@@ -1354,6 +1354,83 @@ func (db *TabloDB) PurgeExpiredAirings() error {
 	return nil
 }
 
+func (db *TabloDB) DeleteAiring(airingID int) error {
+	db.log.Printf("deleting airingID %d\n", airingID)
+	qryDeleteAiringByID := fmt.Sprintf(templates["deleteAiringByID"], strconv.Itoa(airingID))
+	_, err := db.database.Exec(qryDeleteAiringByID)
+	if err != nil {
+		db.log.Println(qryDeleteAiringByID)
+		db.log.Println(err)
+		return err
+	}
+
+	db.log.Println("airing deleted")
+	return err
+}
+
+func (db *TabloDB) UpsertSingleAiring(airing tabloapi.Airing) error {
+	db.log.Printf("updating airing %d\n", airing.Object_ID)
+
+	var showID string
+	var episodeID string
+	airdate, err := dateStringToInt(airing.Airing_Details.Datetime)
+	if err != nil {
+		db.log.Println(err)
+		return err
+	}
+
+	if airing.Series_Path != "" {
+		showID = strings.Split(airing.Series_Path, "/")[3]
+		episodeID = "'" + sanitizeSqlString(getEpisodeID(showID, strconv.Itoa(airing.Episode.Season_Number), airing.Episode.Number, airdate)) + "'"
+	} else if airing.Movie_Path != "" {
+		showID = strings.Split(airing.Movie_Path, "/")[3]
+		episodeID = "null"
+	} else if airing.Sport_Path != "" {
+		showID = strings.Split(airing.Sport_Path, "/")[3]
+		episodeID = "'" + sanitizeSqlString(getEpisodeID(showID, airing.Event.Season, 0, airdate)) + "'"
+	} else {
+		err := fmt.Errorf("No show path for %d", airing.Object_ID)
+		db.log.Println(err)
+		return err
+	}
+
+	var airingValue strings.Builder
+	airingValue.WriteRune('(')
+	airingValue.WriteString(strconv.Itoa(airing.Object_ID))
+	airingValue.WriteRune(',')
+	airingValue.WriteString(sanitizeSqlString(showID))
+	airingValue.WriteRune(',')
+	airingValue.WriteString(strconv.Itoa(airdate))
+	airingValue.WriteRune(',')
+	airingValue.WriteString(strconv.Itoa(airing.Airing_Details.Duration))
+	airingValue.WriteRune(',')
+	airingValue.WriteString(strconv.Itoa(airing.Airing_Details.Channel.Object_ID))
+	airingValue.WriteString(",'")
+	airingValue.WriteString(sanitizeSqlString(airing.Schedule.State))
+	airingValue.WriteString("',")
+	airingValue.WriteString(episodeID) // previously sanitized
+	airingValue.WriteRune(')')
+
+	qryUpsertAiring := fmt.Sprintf(templates["upsertAiring"], airingValue.String())
+	_, err = db.database.Exec(qryUpsertAiring)
+	if err != nil {
+		db.log.Println(qryUpsertAiring)
+		db.log.Println(err)
+		return err
+	}
+	return nil
+}
+
+func (db *TabloDB) ResetScheduled() error {
+	_, err := db.database.Exec(queries["updateAiringScheduledToNone"])
+	if err != nil {
+		db.log.Println(queries["updateAiringScheduledToNone"])
+		db.log.Println(err)
+		return err
+	}
+	return nil
+}
+
 func isOverlapping(c, s conflictRecord) bool {
 	if c.airDate == s.airDate || c.endDate == s.endDate {
 		// both shows start or end at the same time

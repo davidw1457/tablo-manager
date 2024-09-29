@@ -349,6 +349,12 @@ func (t *Tablo) updateScheduled() error {
 			t.log.Println(err)
 			return err
 		}
+		t.log.Println("resetting schedule status")
+		err = t.database.ResetScheduled()
+		if err != nil {
+			t.log.Println(err)
+			return err
+		}
 		t.log.Println("updating scheduled airings")
 		err = t.updateAirings("/guide/airings?state=scheduled")
 		if err != nil {
@@ -778,7 +784,7 @@ func (t *Tablo) getExportFilenames(airings []tablodb.ScheduledAiringRecord) []ex
 }
 
 func (t *Tablo) unscheduleAirings(airings []exportAiring) (int, error) {
-	t.log.Printf("unscheduling %d airings", len(airings))
+	t.log.Printf("unscheduling %d airings\n", len(airings))
 	skipped := 0
 	for i, a := range airings {
 		uri := "http://" + t.ipAddress + ":8885"
@@ -798,13 +804,24 @@ func (t *Tablo) unscheduleAirings(airings []exportAiring) (int, error) {
 		if airing.Error.Code == "object_not_found" {
 			t.log.Printf("%d not found\n", a.airingID)
 			skipped++
-		} else if airing.Schedule.State != "unscheduled" {
+			err = t.database.DeleteAiring(a.airingID)
+			if err != nil {
+				t.log.Println(err)
+				return i, err
+			}
+		} else if airing.Schedule.State != "unscheduled" && airing.Schedule.State != "none" {
 			err = fmt.Errorf("unschedule failed for %d", a.airingID)
+			t.log.Printf("returned: %+v/n", airing)
+			t.log.Println(err)
+			return i, err
+		}
+		err = t.database.UpsertSingleAiring(airing)
+		if err != nil {
 			t.log.Println(err)
 			return i, err
 		}
 	}
-	t.log.Printf("%d airings unscheduled", len(airings)-skipped)
+	t.log.Printf("%d airings unscheduled\n", len(airings)-skipped)
 	return len(airings) - skipped, nil
 }
 

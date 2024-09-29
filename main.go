@@ -10,6 +10,7 @@ import (
 	"tablo-manager/tablo"
 )
 
+// TODO: Cache images. Get from http://privateIP:8885/images/imageID
 // TODO: Create export function
 // TODO: Figure out best way to purge outdated data from system
 //       (e.g. remove showIDs that do not contain airings or recordings & are not scheduled)
