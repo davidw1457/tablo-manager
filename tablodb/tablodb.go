@@ -41,6 +41,14 @@ type ScheduledAiringRecord struct {
 	ReleaseYear  int
 }
 
+type PrioritizedConflictRecord struct {
+	AiringID int
+	ShowType string
+	AirDate  int
+	EndDate  int
+	Priority int
+}
+
 type conflictRecord struct {
 	airingID int
 	showID   int
@@ -112,6 +120,7 @@ func Open(serverID string, ipAddress string, name string, directory string) (Tab
 		tabloDB.log.Println(err)
 		return tabloDB, err
 	}
+
 	if currentDBVer < dbVer {
 		err := tabloDB.updateVer(currentDBVer)
 		if err != nil {
@@ -232,6 +241,7 @@ func (db *TabloDB) GetQueue() ([]QueueRecord, error) {
 		}
 		queue = append(queue, rec)
 	}
+
 	db.log.Printf("%d queue records retrieved\n", len(queue))
 	return queue, nil
 }
@@ -240,7 +250,7 @@ func (db *TabloDB) UpsertChannels(channels map[string]tabloapi.Channel) error {
 	db.log.Printf("preparing %d channels to insert\n", len(channels))
 	var channelValues []string
 	for k, v := range channels {
-		if v.Object_ID == 0 {
+		if v.ObjectID == 0 {
 			continue
 		}
 
@@ -252,12 +262,12 @@ func (db *TabloDB) UpsertChannels(channels map[string]tabloapi.Channel) error {
 		var channelValue strings.Builder
 		channelValue.WriteRune('(')
 		if updateType == "recordings" {
-			channelValue.WriteString("-" + strconv.Itoa(v.Object_ID))
+			channelValue.WriteString("-" + strconv.Itoa(v.ObjectID))
 		} else {
-			channelValue.WriteString(strconv.Itoa(v.Object_ID))
+			channelValue.WriteString(strconv.Itoa(v.ObjectID))
 		}
 		channelValue.WriteString(",'")
-		channelValue.WriteString(sanitizeSqlString(v.Channel.Call_Sign))
+		channelValue.WriteString(sanitizeSqlString(v.Channel.CallSign))
 		channelValue.WriteString("',")
 		channelValue.WriteString(strconv.Itoa(v.Channel.Major))
 		channelValue.WriteRune(',')
@@ -295,20 +305,20 @@ func (db *TabloDB) UpsertShows(shows map[string]tabloapi.Show) error {
 	var showDirectorValues []string
 	var showValues []string
 	for k, s := range shows {
-		if s.Object_ID == 0 {
+		if s.ObjectID == 0 {
 			continue
 		}
 
 		updateType := strings.Split(k, "/")[1]
 
-		showID := strconv.Itoa(s.Object_ID)
+		showID := strconv.Itoa(s.ObjectID)
 		if updateType == "recordings" {
 			showID = "-" + showID
 		}
 
 		parentShowID := "null"
-		if s.Guide_Path != "" {
-			parentShowID = strings.Split(s.Guide_Path, "/")[3]
+		if s.GuidePath != "" {
+			parentShowID = strings.Split(s.GuidePath, "/")[3]
 		}
 
 		rule := "null"
@@ -317,8 +327,8 @@ func (db *TabloDB) UpsertShows(shows map[string]tabloapi.Show) error {
 		}
 
 		channelID := "null"
-		if s.Schedule.Channel_Path != "" {
-			channelID = strings.Split(s.Schedule.Channel_Path, "/")[3]
+		if s.Schedule.ChannelPath != "" {
+			channelID = strings.Split(s.Schedule.ChannelPath, "/")[3]
 			if updateType == "recordings" {
 				channelID = "-" + channelID
 			}
@@ -352,6 +362,7 @@ func (db *TabloDB) UpsertShows(shows map[string]tabloapi.Show) error {
 		showValue.WriteString("',")
 		showValue.WriteString(sanitizeSqlString(count))
 		showValue.WriteString(",'")
+
 		switch showType {
 		case "series":
 			description := "null"
@@ -360,8 +371,8 @@ func (db *TabloDB) UpsertShows(shows map[string]tabloapi.Show) error {
 			}
 
 			airdate := "null"
-			if s.Series.Orig_Air_Date != nil {
-				airdateInt, err := dateStringToInt(*s.Series.Orig_Air_Date)
+			if s.Series.OrigAirDate != nil {
+				airdateInt, err := dateStringToInt(*s.Series.OrigAirDate)
 				if err != nil {
 					db.log.Println(err)
 					return err
@@ -370,8 +381,8 @@ func (db *TabloDB) UpsertShows(shows map[string]tabloapi.Show) error {
 			}
 
 			rating := "null"
-			if s.Series.Series_Rating != nil {
-				rating = "'" + sanitizeSqlString(*s.Series.Series_Rating) + "'"
+			if s.Series.SeriesRating != nil {
+				rating = "'" + sanitizeSqlString(*s.Series.SeriesRating) + "'"
 			}
 
 			showValue.WriteString(sanitizeSqlString(s.Series.Title))
@@ -380,7 +391,7 @@ func (db *TabloDB) UpsertShows(shows map[string]tabloapi.Show) error {
 			showValue.WriteRune(',')
 			showValue.WriteString(airdate) // Int value, no sanitization needed
 			showValue.WriteRune(',')
-			showValue.WriteString(strconv.Itoa(s.Series.Episode_Runtime))
+			showValue.WriteString(strconv.Itoa(s.Series.EpisodeRuntime))
 			showValue.WriteRune(',')
 			showValue.WriteString(rating) // Previously sanitized
 			showValue.WriteString(",null)")
@@ -395,18 +406,18 @@ func (db *TabloDB) UpsertShows(shows map[string]tabloapi.Show) error {
 			}
 
 			airdate := "null"
-			if s.Movie.Release_Year != nil {
-				airdate = strconv.Itoa(dateYearToInt(*s.Movie.Release_Year))
+			if s.Movie.ReleaseYear != nil {
+				airdate = strconv.Itoa(dateYearToInt(*s.Movie.ReleaseYear))
 			}
 
 			filmRating := "null"
-			if s.Movie.Film_Rating != nil {
-				filmRating = "'" + sanitizeSqlString(*s.Movie.Film_Rating) + "'"
+			if s.Movie.FilmRating != nil {
+				filmRating = "'" + sanitizeSqlString(*s.Movie.FilmRating) + "'"
 			}
 
 			qualityRating := "null"
-			if s.Movie.Quality_Rating != nil {
-				qualityRating = strconv.Itoa(*s.Movie.Quality_Rating)
+			if s.Movie.QualityRating != nil {
+				qualityRating = strconv.Itoa(*s.Movie.QualityRating)
 			}
 
 			showValue.WriteString(sanitizeSqlString(s.Movie.Title))
@@ -415,7 +426,7 @@ func (db *TabloDB) UpsertShows(shows map[string]tabloapi.Show) error {
 			showValue.WriteRune(',')
 			showValue.WriteString(airdate) // Int value, no sanitization needed
 			showValue.WriteRune(',')
-			showValue.WriteString(strconv.Itoa(s.Movie.Original_Runtime))
+			showValue.WriteString(strconv.Itoa(s.Movie.OriginalRuntime))
 			showValue.WriteRune(',')
 			showValue.WriteString(filmRating) // Previously sanitized
 			showValue.WriteRune(',')
@@ -438,6 +449,7 @@ func (db *TabloDB) UpsertShows(shows map[string]tabloapi.Show) error {
 			db.log.Println(err)
 			return err
 		}
+
 		showValues = append(showValues, showValue.String())
 
 		for _, g := range genres {
@@ -585,22 +597,22 @@ func (db *TabloDB) UpsertAirings(airings map[string]tabloapi.Airing) error {
 	var episodeTeamValues []string
 
 	for _, a := range airings {
-		if a.Object_ID == 0 {
+		if a.ObjectID == 0 {
 			continue
 		}
 
 		var showID string
 		var episodeID string
-		airdate, err := dateStringToInt(a.Airing_Details.Datetime)
+		airdate, err := dateStringToInt(a.AiringDetails.Datetime)
 		if err != nil {
 			db.log.Println(err)
 			return err
 		}
 
-		if a.Series_Path != "" {
-			showID = strings.Split(a.Series_Path, "/")[3]
+		if a.SeriesPath != "" {
+			showID = strings.Split(a.SeriesPath, "/")[3]
 
-			episodeID = "'" + sanitizeSqlString(getEpisodeID(showID, strconv.Itoa(a.Episode.Season_Number), a.Episode.Number, airdate)) + "'"
+			episodeID = "'" + sanitizeSqlString(getEpisodeID(showID, strconv.Itoa(a.Episode.SeasonNumber), a.Episode.Number, airdate)) + "'"
 
 			title := "null"
 			if a.Episode.Title != "" {
@@ -613,8 +625,8 @@ func (db *TabloDB) UpsertAirings(airings map[string]tabloapi.Airing) error {
 			}
 
 			originalAirDate := "null"
-			if a.Episode.Orig_Air_Date != nil {
-				dateInt, err := dateStringToInt(*a.Episode.Orig_Air_Date)
+			if a.Episode.OrigAirDate != nil {
+				dateInt, err := dateStringToInt(*a.Episode.OrigAirDate)
 				if err != nil {
 					db.log.Println(err)
 					return err
@@ -634,22 +646,22 @@ func (db *TabloDB) UpsertAirings(airings map[string]tabloapi.Airing) error {
 			episodeValue.WriteRune(',')
 			episodeValue.WriteString(strconv.Itoa(a.Episode.Number))
 			episodeValue.WriteString(",'")
-			episodeValue.WriteString(strconv.Itoa(a.Episode.Season_Number))
+			episodeValue.WriteString(strconv.Itoa(a.Episode.SeasonNumber))
 			episodeValue.WriteString("',null,")
 			episodeValue.WriteString(originalAirDate) // Int value, no sanitization needed
 			episodeValue.WriteString(",null)")
 			episodeValues = append(episodeValues, episodeValue.String())
-		} else if a.Movie_Path != "" {
-			showID = strings.Split(a.Movie_Path, "/")[3]
+		} else if a.MoviePath != "" {
+			showID = strings.Split(a.MoviePath, "/")[3]
 			episodeID = "null"
-		} else if a.Sport_Path != "" {
-			showID = strings.Split(a.Sport_Path, "/")[3]
+		} else if a.SportPath != "" {
+			showID = strings.Split(a.SportPath, "/")[3]
 			episodeID = "'" + sanitizeSqlString(getEpisodeID(showID, a.Event.Season, 0, airdate)) + "'"
 
 			for _, t := range a.Event.Teams {
 				var teamValue strings.Builder
 				teamValue.WriteRune('(')
-				teamValue.WriteString(strconv.Itoa(t.Team_ID))
+				teamValue.WriteString(strconv.Itoa(t.TeamID))
 				teamValue.WriteString(",'")
 				teamValue.WriteString(sanitizeSqlString(t.Name))
 				teamValue.WriteString("')")
@@ -659,7 +671,7 @@ func (db *TabloDB) UpsertAirings(airings map[string]tabloapi.Airing) error {
 				episodeTeamValue.WriteRune('(')
 				episodeTeamValue.WriteString(episodeID)
 				episodeTeamValue.WriteRune(',')
-				episodeTeamValue.WriteString(strconv.Itoa(t.Team_ID))
+				episodeTeamValue.WriteString(strconv.Itoa(t.TeamID))
 				episodeTeamValue.WriteRune(')')
 				episodeTeamValues = append(episodeTeamValues, episodeTeamValue.String())
 			}
@@ -670,13 +682,13 @@ func (db *TabloDB) UpsertAirings(airings map[string]tabloapi.Airing) error {
 			}
 
 			seasonType := "null"
-			if a.Event.Season_Type != "" {
-				seasonType = "'" + sanitizeSqlString(a.Event.Season_Type) + "'"
+			if a.Event.SeasonType != "" {
+				seasonType = "'" + sanitizeSqlString(a.Event.SeasonType) + "'"
 			}
 
 			homeTeamID := "null"
-			if a.Event.Home_Team_ID != nil {
-				homeTeamID = strconv.Itoa(*a.Event.Home_Team_ID)
+			if a.Event.HomeTeamID != nil {
+				homeTeamID = strconv.Itoa(*a.Event.HomeTeamID)
 			}
 
 			var episodeValue strings.Builder
@@ -697,22 +709,22 @@ func (db *TabloDB) UpsertAirings(airings map[string]tabloapi.Airing) error {
 			episodeValue.WriteRune(')')
 			episodeValues = append(episodeValues, episodeValue.String())
 		} else {
-			err := fmt.Errorf("No show path for %d", a.Object_ID)
+			err := fmt.Errorf("No show path for %d", a.ObjectID)
 			db.log.Println(err)
 			return err
 		}
 
 		var airingValue strings.Builder
 		airingValue.WriteRune('(')
-		airingValue.WriteString(strconv.Itoa(a.Object_ID))
+		airingValue.WriteString(strconv.Itoa(a.ObjectID))
 		airingValue.WriteRune(',')
 		airingValue.WriteString(sanitizeSqlString(showID))
 		airingValue.WriteRune(',')
 		airingValue.WriteString(strconv.Itoa(airdate))
 		airingValue.WriteRune(',')
-		airingValue.WriteString(strconv.Itoa(a.Airing_Details.Duration))
+		airingValue.WriteString(strconv.Itoa(a.AiringDetails.Duration))
 		airingValue.WriteRune(',')
-		airingValue.WriteString(strconv.Itoa(a.Airing_Details.Channel.Object_ID))
+		airingValue.WriteString(strconv.Itoa(a.AiringDetails.Channel.ObjectID))
 		airingValue.WriteString(",'")
 		airingValue.WriteString(sanitizeSqlString(a.Schedule.State))
 		airingValue.WriteString("',")
@@ -820,22 +832,22 @@ func (db *TabloDB) UpsertRecordings(recordings map[string]tabloapi.Recording) er
 	var recordingIDs []string
 
 	for _, r := range recordings {
-		if r.Object_ID == 0 {
+		if r.ObjectID == 0 {
 			continue
 		}
 
 		var showID string
 		var episodeID string
-		airdate, err := dateStringToInt(r.Airing_Details.Datetime)
+		airdate, err := dateStringToInt(r.AiringDetails.Datetime)
 		if err != nil {
 			db.log.Println(err)
 			return err
 		}
 
-		if r.Series_Path != "" {
-			showID = "-" + strings.Split(r.Series_Path, "/")[3]
+		if r.SeriesPath != "" {
+			showID = "-" + strings.Split(r.SeriesPath, "/")[3]
 
-			episodeID = "'" + sanitizeSqlString(getEpisodeID(showID, strconv.Itoa(r.Episode.Season_Number), r.Episode.Number, airdate)) + "'"
+			episodeID = "'" + sanitizeSqlString(getEpisodeID(showID, strconv.Itoa(r.Episode.SeasonNumber), r.Episode.Number, airdate)) + "'"
 
 			title := "null"
 			if r.Episode.Title != "" {
@@ -848,8 +860,8 @@ func (db *TabloDB) UpsertRecordings(recordings map[string]tabloapi.Recording) er
 			}
 
 			originalAirDate := "null"
-			if r.Episode.Orig_Air_Date != nil {
-				dateInt, err := dateStringToInt(*r.Episode.Orig_Air_Date)
+			if r.Episode.OrigAirDate != nil {
+				dateInt, err := dateStringToInt(*r.Episode.OrigAirDate)
 				if err != nil {
 					db.log.Println(err)
 					return err
@@ -869,22 +881,22 @@ func (db *TabloDB) UpsertRecordings(recordings map[string]tabloapi.Recording) er
 			episodeValue.WriteRune(',')
 			episodeValue.WriteString(strconv.Itoa(r.Episode.Number))
 			episodeValue.WriteString(",'")
-			episodeValue.WriteString(strconv.Itoa(r.Episode.Season_Number))
+			episodeValue.WriteString(strconv.Itoa(r.Episode.SeasonNumber))
 			episodeValue.WriteString("',null,")
 			episodeValue.WriteString(originalAirDate) // Int value, no sanitization needed
 			episodeValue.WriteString(",null)")
 			episodeValues = append(episodeValues, episodeValue.String())
-		} else if r.Movie_Path != "" {
-			showID = "-" + strings.Split(r.Movie_Path, "/")[3]
+		} else if r.MoviePath != "" {
+			showID = "-" + strings.Split(r.MoviePath, "/")[3]
 			episodeID = "null"
-		} else if r.Sport_Path != "" {
-			showID = "-" + strings.Split(r.Sport_Path, "/")[3]
+		} else if r.SportPath != "" {
+			showID = "-" + strings.Split(r.SportPath, "/")[3]
 			episodeID = "'" + sanitizeSqlString(getEpisodeID(showID, r.Event.Season, 0, airdate)) + "'"
 
 			for _, t := range r.Event.Teams {
 				var teamValue strings.Builder
 				teamValue.WriteRune('(')
-				teamValue.WriteString(strconv.Itoa(t.Team_ID))
+				teamValue.WriteString(strconv.Itoa(t.TeamID))
 				teamValue.WriteString(",'")
 				teamValue.WriteString(sanitizeSqlString(t.Name))
 				teamValue.WriteString("')")
@@ -894,7 +906,7 @@ func (db *TabloDB) UpsertRecordings(recordings map[string]tabloapi.Recording) er
 				episodeTeamValue.WriteRune('(')
 				episodeTeamValue.WriteString(episodeID)
 				episodeTeamValue.WriteRune(',')
-				episodeTeamValue.WriteString(strconv.Itoa(t.Team_ID))
+				episodeTeamValue.WriteString(strconv.Itoa(t.TeamID))
 				episodeTeamValue.WriteRune(')')
 				episodeTeamValues = append(episodeTeamValues, episodeTeamValue.String())
 			}
@@ -905,13 +917,13 @@ func (db *TabloDB) UpsertRecordings(recordings map[string]tabloapi.Recording) er
 			}
 
 			seasonType := "null"
-			if r.Event.Season_Type != "" {
-				seasonType = "'" + sanitizeSqlString(r.Event.Season_Type) + "'"
+			if r.Event.SeasonType != "" {
+				seasonType = "'" + sanitizeSqlString(r.Event.SeasonType) + "'"
 			}
 
 			homeTeamID := "null"
-			if r.Event.Home_Team_ID != nil {
-				homeTeamID = strconv.Itoa(*r.Event.Home_Team_ID)
+			if r.Event.HomeTeamID != nil {
+				homeTeamID = strconv.Itoa(*r.Event.HomeTeamID)
 			}
 
 			var episodeValue strings.Builder
@@ -932,88 +944,88 @@ func (db *TabloDB) UpsertRecordings(recordings map[string]tabloapi.Recording) er
 			episodeValue.WriteRune(')')
 			episodeValues = append(episodeValues, episodeValue.String())
 		} else {
-			err := fmt.Errorf("No show path for %d", r.Object_ID)
+			err := fmt.Errorf("No show path for %d", r.ObjectID)
 			db.log.Println(err)
 			return err
 		}
 
 		clean := "0"
-		if r.Video_Details.Clean {
+		if r.VideoDetails.Clean {
 			clean = "1"
 		}
 
 		var recordingValue strings.Builder
 		recordingValue.WriteRune('(')
-		recordingValue.WriteString(strconv.Itoa(r.Object_ID))
+		recordingValue.WriteString(strconv.Itoa(r.ObjectID))
 		recordingValue.WriteRune(',')
 		recordingValue.WriteString(sanitizeSqlString(showID))
 		recordingValue.WriteRune(',')
 		recordingValue.WriteString(strconv.Itoa(airdate))
 		recordingValue.WriteRune(',')
-		recordingValue.WriteString(strconv.Itoa(r.Airing_Details.Duration))
+		recordingValue.WriteString(strconv.Itoa(r.AiringDetails.Duration))
 		recordingValue.WriteRune(',')
-		recordingValue.WriteString("-" + strconv.Itoa(r.Airing_Details.Channel.Object_ID))
+		recordingValue.WriteString("-" + strconv.Itoa(r.AiringDetails.Channel.ObjectID))
 		recordingValue.WriteString(",'")
-		recordingValue.WriteString(sanitizeSqlString(r.Video_Details.State))
+		recordingValue.WriteString(sanitizeSqlString(r.VideoDetails.State))
 		recordingValue.WriteString("',")
 		recordingValue.WriteString(clean) // Bool value, no sanitization needed
 		recordingValue.WriteRune(',')
-		recordingValue.WriteString(strconv.Itoa(r.Video_Details.Duration))
+		recordingValue.WriteString(strconv.Itoa(r.VideoDetails.Duration))
 		recordingValue.WriteRune(',')
-		recordingValue.WriteString(strconv.Itoa(r.Video_Details.Size))
+		recordingValue.WriteString(strconv.Itoa(r.VideoDetails.Size))
 		recordingValue.WriteString(",'")
-		recordingValue.WriteString(sanitizeSqlString(r.Video_Details.ComSkip.State))
+		recordingValue.WriteString(sanitizeSqlString(r.VideoDetails.ComSkip.State))
 		recordingValue.WriteString("',")
 		recordingValue.WriteString(episodeID) // previously sanitized
 		recordingValue.WriteRune(')')
 		recordingValues = append(recordingValues, recordingValue.String())
 
-		recordingIDs = append(recordingIDs, strconv.Itoa(r.Object_ID))
+		recordingIDs = append(recordingIDs, strconv.Itoa(r.ObjectID))
 
-		if r.Video_Details.State == "failed" || !r.Video_Details.Clean || r.Video_Details.ComSkip.State != "none" {
+		if r.VideoDetails.State == "failed" || !r.VideoDetails.Clean || r.VideoDetails.ComSkip.State != "none" {
 			var comSkipError = "null"
-			if r.Video_Details.ComSkip.Error != nil {
-				comSkipError = "'" + sanitizeSqlString(*r.Video_Details.ComSkip.Error) + "'"
+			if r.VideoDetails.ComSkip.Error != nil {
+				comSkipError = "'" + sanitizeSqlString(*r.VideoDetails.ComSkip.Error) + "'"
 			}
 
 			var errorCode = "null"
-			if r.Video_Details.Error.Code != nil {
-				comSkipError = "'" + sanitizeSqlString(*r.Video_Details.Error.Code) + "'"
+			if r.VideoDetails.Error.Code != nil {
+				comSkipError = "'" + sanitizeSqlString(*r.VideoDetails.Error.Code) + "'"
 			}
 
 			var errorDetails = "null"
-			if r.Video_Details.Error.Details != nil {
-				comSkipError = "'" + sanitizeSqlString(*r.Video_Details.Error.Details) + "'"
+			if r.VideoDetails.Error.Details != nil {
+				comSkipError = "'" + sanitizeSqlString(*r.VideoDetails.Error.Details) + "'"
 			}
 
 			var errorDescription = "null"
-			if r.Video_Details.Error.Description != nil {
-				comSkipError = "'" + sanitizeSqlString(*r.Video_Details.Error.Description) + "'"
+			if r.VideoDetails.Error.Description != nil {
+				comSkipError = "'" + sanitizeSqlString(*r.VideoDetails.Error.Description) + "'"
 			}
 
 			var errorValue strings.Builder
 			errorValue.WriteRune('(')
-			errorValue.WriteString(strconv.Itoa(r.Object_ID))
+			errorValue.WriteString(strconv.Itoa(r.ObjectID))
 			errorValue.WriteRune(',')
 			errorValue.WriteString(sanitizeSqlString(showID))
 			errorValue.WriteRune(',')
 			errorValue.WriteString(episodeID) // previously sanitized
 			errorValue.WriteRune(',')
-			errorValue.WriteString(strconv.Itoa(r.Airing_Details.Channel.Object_ID))
+			errorValue.WriteString(strconv.Itoa(r.AiringDetails.Channel.ObjectID))
 			errorValue.WriteRune(',')
 			errorValue.WriteString(strconv.Itoa(airdate))
 			errorValue.WriteRune(',')
-			errorValue.WriteString(strconv.Itoa(r.Airing_Details.Duration))
+			errorValue.WriteString(strconv.Itoa(r.AiringDetails.Duration))
 			errorValue.WriteRune(',')
-			errorValue.WriteString(strconv.Itoa(r.Video_Details.Duration))
+			errorValue.WriteString(strconv.Itoa(r.VideoDetails.Duration))
 			errorValue.WriteRune(',')
-			errorValue.WriteString(strconv.Itoa(r.Video_Details.Size))
+			errorValue.WriteString(strconv.Itoa(r.VideoDetails.Size))
 			errorValue.WriteString(",'")
-			errorValue.WriteString(sanitizeSqlString(r.Video_Details.State))
+			errorValue.WriteString(sanitizeSqlString(r.VideoDetails.State))
 			errorValue.WriteString("',")
 			errorValue.WriteString(clean) // Bool value. No sanitization needed
 			errorValue.WriteString(",'")
-			errorValue.WriteString(sanitizeSqlString(r.Video_Details.ComSkip.State))
+			errorValue.WriteString(sanitizeSqlString(r.VideoDetails.ComSkip.State))
 			errorValue.WriteString("',")
 			errorValue.WriteString(comSkipError) // previously sanitized
 			errorValue.WriteRune(',')
@@ -1161,6 +1173,13 @@ func (db *TabloDB) UpdateSpace(total int64, free int64) error {
 }
 
 func (db *TabloDB) UpdateConflicts() error {
+	_, err := db.database.Exec(queries["deleteConflicts"])
+	if err != nil {
+		fmt.Println(queries["deleteConflicts"])
+		fmt.Println(err)
+		return err
+	}
+
 	rows, err := db.database.Query(queries["selectConflicts"])
 	if err != nil {
 		db.log.Println(queries["selectConflicts"])
@@ -1195,6 +1214,7 @@ func (db *TabloDB) UpdateConflicts() error {
 	}
 
 	var scheduled []*conflictRecord
+
 	for rows.Next() {
 		schedule := new(conflictRecord)
 		err = rows.Scan(&schedule.airingID, &schedule.showID, &schedule.airDate, &schedule.duration)
@@ -1216,6 +1236,7 @@ func (db *TabloDB) UpdateConflicts() error {
 			if s == nil {
 				continue
 			}
+
 			if isOverlapping(c, *s) {
 				conflictValue := createConflictValue(*s)
 				conflictValues = append(conflictValues, conflictValue)
@@ -1226,13 +1247,6 @@ func (db *TabloDB) UpdateConflicts() error {
 
 	if len(conflictValues) == 0 {
 		err = fmt.Errorf("no conflicts in insert values")
-		fmt.Println(err)
-		return err
-	}
-
-	_, err = db.database.Exec(queries["deleteConflicts"])
-	if err != nil {
-		fmt.Println(queries["deleteConflicts"])
 		fmt.Println(err)
 		return err
 	}
@@ -1337,6 +1351,7 @@ func (db *TabloDB) GetScheduledAirings() ([]ScheduledAiringRecord, error) {
 		airings = append(airings, airing)
 	}
 
+	db.log.Printf("%d scheduled airings found\n", len(airings))
 	return airings, nil
 }
 
@@ -1369,42 +1384,42 @@ func (db *TabloDB) DeleteAiring(airingID int) error {
 }
 
 func (db *TabloDB) UpsertSingleAiring(airing tabloapi.Airing) error {
-	db.log.Printf("updating airing %d\n", airing.Object_ID)
+	db.log.Printf("updating airing %d\n", airing.ObjectID)
 
 	var showID string
 	var episodeID string
-	airdate, err := dateStringToInt(airing.Airing_Details.Datetime)
+	airdate, err := dateStringToInt(airing.AiringDetails.Datetime)
 	if err != nil {
 		db.log.Println(err)
 		return err
 	}
 
-	if airing.Series_Path != "" {
-		showID = strings.Split(airing.Series_Path, "/")[3]
-		episodeID = "'" + sanitizeSqlString(getEpisodeID(showID, strconv.Itoa(airing.Episode.Season_Number), airing.Episode.Number, airdate)) + "'"
-	} else if airing.Movie_Path != "" {
-		showID = strings.Split(airing.Movie_Path, "/")[3]
+	if airing.SeriesPath != "" {
+		showID = strings.Split(airing.SeriesPath, "/")[3]
+		episodeID = "'" + sanitizeSqlString(getEpisodeID(showID, strconv.Itoa(airing.Episode.SeasonNumber), airing.Episode.Number, airdate)) + "'"
+	} else if airing.MoviePath != "" {
+		showID = strings.Split(airing.MoviePath, "/")[3]
 		episodeID = "null"
-	} else if airing.Sport_Path != "" {
-		showID = strings.Split(airing.Sport_Path, "/")[3]
+	} else if airing.SportPath != "" {
+		showID = strings.Split(airing.SportPath, "/")[3]
 		episodeID = "'" + sanitizeSqlString(getEpisodeID(showID, airing.Event.Season, 0, airdate)) + "'"
 	} else {
-		err := fmt.Errorf("No show path for %d", airing.Object_ID)
+		err := fmt.Errorf("No show path for %d", airing.ObjectID)
 		db.log.Println(err)
 		return err
 	}
 
 	var airingValue strings.Builder
 	airingValue.WriteRune('(')
-	airingValue.WriteString(strconv.Itoa(airing.Object_ID))
+	airingValue.WriteString(strconv.Itoa(airing.ObjectID))
 	airingValue.WriteRune(',')
 	airingValue.WriteString(sanitizeSqlString(showID))
 	airingValue.WriteRune(',')
 	airingValue.WriteString(strconv.Itoa(airdate))
 	airingValue.WriteRune(',')
-	airingValue.WriteString(strconv.Itoa(airing.Airing_Details.Duration))
+	airingValue.WriteString(strconv.Itoa(airing.AiringDetails.Duration))
 	airingValue.WriteRune(',')
-	airingValue.WriteString(strconv.Itoa(airing.Airing_Details.Channel.Object_ID))
+	airingValue.WriteString(strconv.Itoa(airing.AiringDetails.Channel.ObjectID))
 	airingValue.WriteString(",'")
 	airingValue.WriteString(sanitizeSqlString(airing.Schedule.State))
 	airingValue.WriteString("',")
@@ -1429,6 +1444,37 @@ func (db *TabloDB) ResetScheduled() error {
 		return err
 	}
 	return nil
+}
+
+func (db *TabloDB) GetPrioritizedConflicts() ([]PrioritizedConflictRecord, error) {
+	db.log.Println("getting prioritized conflicts")
+
+	rows, err := db.database.Query(queries["selectPriorityConflicts"])
+	if err != nil {
+		db.log.Println(err)
+		return nil, err
+	}
+
+	var conflicts []PrioritizedConflictRecord
+	for rows.Next() {
+		var conflict PrioritizedConflictRecord
+		err = rows.Scan(&conflict.AiringID, &conflict.ShowType, &conflict.Priority, &conflict.AirDate, &conflict.EndDate)
+		if err != nil {
+			db.log.Println(err)
+			return nil, err
+		}
+		if conflict.ShowType == "movies" {
+			conflict.Priority = 0
+		}
+		if conflict.Priority < 0 {
+			err = fmt.Errorf("no priority for %d", conflict.AiringID)
+			db.log.Println(err)
+			return nil, err
+		}
+		conflicts = append(conflicts, conflict)
+	}
+
+	return conflicts, nil
 }
 
 func isOverlapping(c, s conflictRecord) bool {
@@ -1516,6 +1562,7 @@ func dateYearToInt(y int) int {
 
 func sanitizeSqlString(s string) string {
 	var out []rune
+
 	for _, s := range s {
 		switch s {
 		case '\'':

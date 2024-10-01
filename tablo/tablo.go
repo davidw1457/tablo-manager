@@ -48,7 +48,7 @@ type exportAiring struct {
 func New(databaseDir string) ([]*Tablo, error) {
 	logFile, err := os.OpenFile(databaseDir+string(os.PathSeparator)+"main.log", os.O_WRONLY|os.O_APPEND|os.O_CREATE, userRWX)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("os.OpenFile error in New: %v", err)
 	}
 	tabloFactoryLog := log.New(io.MultiWriter(logFile, os.Stdout), "tablo: ", log.LstdFlags)
 
@@ -62,6 +62,7 @@ func New(databaseDir string) ([]*Tablo, error) {
 		tabloFactoryLog.Println(err.Error())
 		return nil, err
 	}
+
 	for _, v := range files {
 		fileName := v.Name()
 		if utils.Substring(fileName, -6, 6) == ".cache" {
@@ -77,7 +78,8 @@ func New(databaseDir string) ([]*Tablo, error) {
 	}
 
 	tabloFactoryLog.Println("unmarshalling tablo info")
-	var tabloInfo tabloapi.WebApiResp
+
+	var tabloInfo tabloapi.WebAPIResp
 	err = json.Unmarshal(tabloWebResponse, &tabloInfo)
 	if err != nil {
 		tabloFactoryLog.Println(err.Error())
@@ -85,24 +87,27 @@ func New(databaseDir string) ([]*Tablo, error) {
 	}
 
 	tabloFactoryLog.Println("creating Tablo object for each tablo retrieved")
+
 	var errMessage strings.Builder
-	for _, v := range tabloInfo.Cpes {
+
+	for _, tabloData := range tabloInfo.Cpes {
 		var tablo *Tablo
-		if localDBs[v.ServerID] != "" {
+		if localDBs[tabloData.ServerID] != "" {
 			tablo = &Tablo{
-				ipAddress: v.Private_IP,
-				name:      v.Name,
-				serverID:  v.ServerID,
-				log:       log.New(io.MultiWriter(logFile, os.Stdout), "tablo "+v.ServerID+": ", log.LstdFlags),
+				ipAddress: tabloData.PrivateIP,
+				name:      tabloData.Name,
+				serverID:  tabloData.ServerID,
+				log:       log.New(io.MultiWriter(logFile, os.Stdout), "tablo "+tabloData.ServerID+": ", log.LstdFlags),
 			}
-			tablo.database, err = tablodb.Open(v.ServerID, v.Private_IP, v.Name, databaseDir)
+			tablo.database, err = tablodb.Open(tabloData.ServerID, tabloData.PrivateIP, tabloData.Name, databaseDir)
 			if err != nil {
 				tabloFactoryLog.Println(err)
-				err = os.Remove(databaseDir + string(os.PathSeparator) + localDBs[v.ServerID])
+				err = os.Remove(databaseDir + string(os.PathSeparator) + localDBs[tabloData.ServerID])
 				if err != nil {
 					tabloFactoryLog.Println(err)
 					return nil, err
 				}
+
 				tablo = nil
 			} else {
 				tablo.guideLastUpdated, tablo.scheduledLastUpdated, tablo.recordingsLastUpdated, err = tablo.database.GetLastUpdated()
@@ -115,24 +120,26 @@ func New(databaseDir string) ([]*Tablo, error) {
 					tabloFactoryLog.Println(err)
 					return nil, err
 				}
+
 				tablos = append(tablos, tablo)
 			}
 
 		}
+
 		if tablo == nil {
 			tablo = &Tablo{
-				ipAddress:             v.Private_IP,
-				name:                  v.Name,
-				serverID:              v.ServerID,
+				ipAddress:             tabloData.PrivateIP,
+				name:                  tabloData.Name,
+				serverID:              tabloData.ServerID,
 				guideLastUpdated:      time.Unix(0, 0),
 				scheduledLastUpdated:  time.Unix(0, 0),
 				recordingsLastUpdated: time.Unix(0, 0),
-				log:                   log.New(io.MultiWriter(logFile, os.Stdout), "tablo "+v.ServerID+": ", log.LstdFlags),
+				log:                   log.New(io.MultiWriter(logFile, os.Stdout), "tablo "+tabloData.ServerID+": ", log.LstdFlags),
 			}
 			tablo.database, err = tablodb.New(tablo.ipAddress, tablo.name, tablo.serverID, databaseDir)
 			if err != nil {
 				tabloFactoryLog.Println(err.Error())
-				errMessage.WriteString(v.ServerID + ": " + err.Error())
+				errMessage.WriteString(tabloData.ServerID + ": " + err.Error())
 			} else {
 				tablos = append(tablos, tablo)
 			}
@@ -203,20 +210,21 @@ func (t *Tablo) HasQueueItems() bool {
 
 func (t *Tablo) LoadQueue() error {
 	t.log.Println("loading queue from cache")
-	q, err := t.database.GetQueue()
+	queue, err := t.database.GetQueue()
 	if err != nil {
 		t.log.Println(err)
 		return err
 	}
-	t.queue = q
-	t.log.Printf("loaded %d queue records\n", len(q))
+	t.queue = queue
+	t.log.Printf("loaded %d queue records\n", len(queue))
 	return nil
 }
 
 func (t *Tablo) ProcessQueue() error {
 	t.log.Println("processing all queue records")
-	for _, q := range t.queue {
-		switch q.Action {
+
+	for _, queueRecord := range t.queue {
+		switch queueRecord.Action {
 		case "UPDATEGUIDE":
 			t.log.Println("updating guide")
 			err := t.updateGuide()
@@ -239,23 +247,25 @@ func (t *Tablo) ProcessQueue() error {
 				return err
 			}
 		case "EXPORT":
-			t.log.Printf("exporting %s\n", q.Details)
-			err := t.exportRecording(q.Details, q.ExportPath)
+			t.log.Printf("exporting %s\n", queueRecord.Details)
+			err := t.exportRecording(queueRecord.Details, queueRecord.ExportPath)
 			if err != nil {
 				t.log.Println(err)
 				return err
 			}
 		default:
-			t.log.Printf("invalid action: %s\n", q.Action)
+			t.log.Printf("invalid action: %s\n", queueRecord.Action)
 		}
-		t.log.Printf("deleting queue record %d %s %s\n", q.QueueID, q.Action, q.Details)
-		err := t.database.DeleteQueueRecord(q.QueueID)
+		t.log.Printf("deleting queue record %d %s %s\n", queueRecord.QueueID, queueRecord.Action, queueRecord.Details)
+		err := t.database.DeleteQueueRecord(queueRecord.QueueID)
 		if err != nil {
 			t.log.Println(err)
 			return err
 		}
+
 		if t.NeedUpdate() {
 			t.log.Println("aborting queue processing to queue update")
+
 			break
 		}
 	}
@@ -266,6 +276,7 @@ func (t *Tablo) ProcessQueue() error {
 
 func (t *Tablo) updateGuide() error {
 	t.log.Println("updating channels")
+
 	unscheduledCount := 1
 	for unscheduledCount > 0 {
 		err := t.database.PurgeExpiredAirings()
@@ -278,12 +289,14 @@ func (t *Tablo) updateGuide() error {
 			t.log.Println(err)
 			return err
 		}
+
 		t.log.Println("updating shows")
 		err = t.updateShows("/guide/shows")
 		if err != nil {
 			t.log.Println(err)
 			return err
 		}
+
 		t.log.Println("updating airings")
 		err = t.updateAirings("/guide/airings")
 		if err != nil {
@@ -296,12 +309,14 @@ func (t *Tablo) updateGuide() error {
 			t.log.Println(err)
 			return err
 		}
+
 		t.log.Println("updating space")
 		err = t.updateSpace()
 		if err != nil {
 			t.log.Println(err)
 			return err
 		}
+
 		if t.defaultExportPath != "" {
 			t.log.Println("updating exported files")
 			unscheduledCount, err = t.updateExported("")
@@ -311,6 +326,15 @@ func (t *Tablo) updateGuide() error {
 			}
 		} else {
 			unscheduledCount = 0
+		}
+
+		if unscheduledCount == 0 {
+			t.log.Println("autoresolving conflicts")
+			err = t.autoresolveConflicts()
+			if err != nil {
+				t.log.Println(err)
+				return err
+			}
 		}
 	}
 	t.guideLastUpdated = time.Now()
@@ -325,12 +349,14 @@ func (t *Tablo) updateGuide() error {
 		t.log.Println(err)
 		return err
 	}
+
 	t.log.Println("guide updated")
 	return nil
 }
 
 func (t *Tablo) updateScheduled() error {
 	t.log.Println("updating channels")
+
 	unscheduledCount := 1
 	for unscheduledCount > 0 {
 		err := t.database.PurgeExpiredAirings()
@@ -359,6 +385,7 @@ func (t *Tablo) updateScheduled() error {
 		err = t.updateAirings("/guide/airings?state=scheduled")
 		if err != nil {
 			t.log.Println(err)
+
 			if err.Error() != "no airings returned" {
 				return err
 			}
@@ -367,6 +394,7 @@ func (t *Tablo) updateScheduled() error {
 		err = t.updateAirings("/guide/airings?state=conflicted")
 		if err != nil {
 			t.log.Println(err)
+
 			if err.Error() != "no airings returned" {
 				return err
 			}
@@ -377,12 +405,14 @@ func (t *Tablo) updateScheduled() error {
 			t.log.Println(err)
 			return err
 		}
+
 		t.log.Println("updating space")
 		err = t.updateSpace()
 		if err != nil {
 			t.log.Println(err)
 			return err
 		}
+
 		if t.defaultExportPath != "" {
 			t.log.Println("updating exported files")
 			unscheduledCount, err = t.updateExported("")
@@ -393,6 +423,15 @@ func (t *Tablo) updateScheduled() error {
 		} else {
 			unscheduledCount = 0
 		}
+
+		if unscheduledCount == 0 {
+			t.log.Println("autoresolving conflicts")
+			err = t.autoresolveConflicts()
+			if err != nil {
+				t.log.Println(err)
+				return err
+			}
+		}
 	}
 
 	t.scheduledLastUpdated = time.Now()
@@ -401,6 +440,7 @@ func (t *Tablo) updateScheduled() error {
 		t.log.Println(err)
 		return err
 	}
+
 	t.log.Println("scheduled updated")
 	return nil
 }
@@ -410,6 +450,7 @@ func (t *Tablo) updateRecordings() error {
 	err := t.updateChannels("/recordings/channels")
 	if err != nil {
 		t.log.Println(err)
+
 		if err.Error() != "no channels returned" {
 			return err
 		}
@@ -419,6 +460,7 @@ func (t *Tablo) updateRecordings() error {
 	err = t.updateShows("/recordings/shows")
 	if err != nil {
 		t.log.Println(err)
+
 		if err.Error() != "no shows returned" {
 			return err
 		}
@@ -428,6 +470,7 @@ func (t *Tablo) updateRecordings() error {
 	err = t.updateRecordingAirings()
 	if err != nil {
 		t.log.Println(err)
+
 		if err.Error() != "no recording airings returned" {
 			return err
 		}
@@ -439,6 +482,7 @@ func (t *Tablo) updateRecordings() error {
 		t.log.Println(err)
 		return err
 	}
+
 	t.log.Println("recordings updated")
 	return nil
 }
@@ -479,6 +523,7 @@ func (t *Tablo) updateChannels(suffix string) error {
 		t.log.Println(err)
 		return err
 	}
+
 	if len(channelDetails) > 0 {
 		t.log.Printf("adding %d channels to database\n", len(channelDetails))
 		err = t.database.UpsertChannels(channelDetails)
@@ -491,6 +536,7 @@ func (t *Tablo) updateChannels(suffix string) error {
 		t.log.Println(err)
 		return err
 	}
+
 	t.log.Println("channels updated")
 	return nil
 }
@@ -531,6 +577,7 @@ func (t *Tablo) updateShows(suffix string) error {
 		t.log.Println(err)
 		return err
 	}
+
 	if len(showDetails) > 0 {
 		t.log.Printf("adding %d shows to database\n", len(showDetails))
 		err = t.database.UpsertShows(showDetails)
@@ -584,6 +631,7 @@ func (t *Tablo) updateAirings(suffix string) error {
 		t.log.Println(err)
 		return err
 	}
+
 	if len(airingDetails) > 0 {
 		t.log.Printf("adding %d airings to database\n", len(airingDetails))
 		err = t.database.UpsertAirings(airingDetails)
@@ -644,6 +692,7 @@ func (t *Tablo) updateRecordingAirings() error {
 		t.log.Println(err)
 		return err
 	}
+
 	if len(recordingDetails) > 0 {
 		t.log.Printf("adding %d recording airings to database\n", len(recordingDetails))
 		err = t.database.UpsertRecordings(recordingDetails)
@@ -662,7 +711,11 @@ func (t *Tablo) updateRecordingAirings() error {
 }
 
 func (t *Tablo) updateConflicts() error {
-	return t.database.UpdateConflicts()
+	err := t.database.UpdateConflicts()
+	if err != nil {
+		return fmt.Errorf("tablodb.UpdateConflicts error in updateConflicts: %v", err)
+	}
+	return nil
 }
 
 func (t *Tablo) updateSpace() error {
@@ -683,6 +736,7 @@ func (t *Tablo) updateSpace() error {
 
 	totalSpace := int64(0)
 	freeSpace := int64(0)
+
 	for _, d := range drives {
 		totalSpace += d.Size
 		freeSpace += d.Free
@@ -699,6 +753,7 @@ func (t *Tablo) updateSpace() error {
 
 func (t *Tablo) updateExported(alternatePath string) (int, error) {
 	t.log.Println("updating exported records")
+
 	if t.defaultExportPath == "" && alternatePath == "" {
 		err := fmt.Errorf("no export path specified")
 		t.log.Println(err)
@@ -721,6 +776,7 @@ func (t *Tablo) updateExported(alternatePath string) (int, error) {
 		t.log.Println(err)
 		return 0, err
 	}
+
 	if len(exportedMissing) > 0 {
 		err = t.database.DeleteExported(exportedMissing)
 		if err != nil {
@@ -731,33 +787,40 @@ func (t *Tablo) updateExported(alternatePath string) (int, error) {
 
 	var unscheduledCount int
 	if len(exportedFound) > 0 {
+		t.log.Println("inserting exported")
 		err = t.database.InsertExported(exportedFound)
 		if err != nil {
 			t.log.Println(err)
 			return 0, err
 		}
 
+		t.log.Println("creating map of exported items")
 		exportedFoundMap := make(map[string]bool)
 		for _, e := range exportedFound {
 			exportedFoundMap[e] = true
 		}
 
+		t.log.Println("getting all scheduled airings to match with exported items")
 		scheduled, err := t.database.GetScheduledAirings()
 		if err != nil {
 			t.log.Println(err)
 			return 0, err
 		}
 
+		t.log.Println("getting default export filenames for all scheduled airings")
 		toExportFileNames := t.getExportFilenames(scheduled)
 
-		var toUnschedule []exportAiring
+		t.log.Println("matching scheduled airings to exported shows")
+		toUnschedule := make(map[int]string)
+
 		for _, f := range toExportFileNames {
 			if exportedFoundMap[f.exportFile] {
-				toUnschedule = append(toUnschedule, f)
+				toUnschedule[f.airingID] = f.showType
 			}
 		}
 
 		if len(toUnschedule) > 0 {
+			t.log.Println("unscheduling exported airings")
 			unscheduledCount, err = t.unscheduleAirings(toUnschedule)
 			if err != nil {
 				t.log.Println(err)
@@ -772,6 +835,7 @@ func (t *Tablo) updateExported(alternatePath string) (int, error) {
 
 func (t *Tablo) getExportFilenames(airings []tablodb.ScheduledAiringRecord) []exportAiring {
 	var exportFilenames []exportAiring
+
 	for _, a := range airings {
 		var export exportAiring
 		export.airingID = a.AiringID
@@ -783,53 +847,106 @@ func (t *Tablo) getExportFilenames(airings []tablodb.ScheduledAiringRecord) []ex
 	return exportFilenames
 }
 
-func (t *Tablo) unscheduleAirings(airings []exportAiring) (int, error) {
+func (t *Tablo) unscheduleAirings(airings map[int]string) (int, error) {
 	t.log.Printf("unscheduling %d airings\n", len(airings))
-	skipped := 0
-	for i, a := range airings {
+	unscheduled := 0
+
+	for airingID, showType := range airings {
 		uri := "http://" + t.ipAddress + ":8885"
-		subpath := "/guide" + showTypeSubpath[a.showType] + "/" + strconv.Itoa(a.airingID)
+		subpath := "/guide" + showTypeSubpath[showType] + "/" + strconv.Itoa(airingID)
 		resp, err := patch(uri+subpath, `{"scheduled": false}`)
 		if err != nil {
 			t.log.Println(err)
-			return i, err
+			return unscheduled, err
 		}
 
 		var airing tabloapi.Airing
 		err = json.Unmarshal(resp, &airing)
 		if err != nil {
 			t.log.Println(err)
-			return i, err
+			return unscheduled, err
 		}
+
 		if airing.Error.Code == "object_not_found" {
-			t.log.Printf("%d not found\n", a.airingID)
-			skipped++
-			err = t.database.DeleteAiring(a.airingID)
+			t.log.Printf("%d not found\n", airingID)
+			err = t.database.DeleteAiring(airingID)
 			if err != nil {
 				t.log.Println(err)
-				return i, err
+				return unscheduled, err
 			}
 		} else if airing.Schedule.State != "unscheduled" && airing.Schedule.State != "none" {
-			err = fmt.Errorf("unschedule failed for %d", a.airingID)
+			err = fmt.Errorf("unschedule failed for %d", airingID)
+
 			t.log.Printf("returned: %+v/n", airing)
 			t.log.Println(err)
-			return i, err
+			return unscheduled, err
 		}
 		err = t.database.UpsertSingleAiring(airing)
 		if err != nil {
 			t.log.Println(err)
-			return i, err
+			return unscheduled, err
+		}
+		unscheduled++
+	}
+	t.log.Printf("%d airings unscheduled\n", unscheduled)
+	return unscheduled, nil
+}
+
+func (t *Tablo) autoresolveConflicts() (error) {
+	conflicts, err := t.database.GetPrioritizedConflicts()
+	if err != nil {
+		t.log.Println(err)
+		return err
+	}
+
+	toUnschedule := make(map[int]string)
+
+	for len(conflicts) > 2 {
+		endDate := conflicts[0].EndDate
+		lowPriorityIndex := 0
+		subIndex := 1
+		for subIndex < len(conflicts) {
+			if conflicts[subIndex].AirDate < endDate {
+				if conflicts[subIndex].EndDate < endDate {
+					endDate = conflicts[subIndex].EndDate
+				}
+				if conflicts[lowPriorityIndex].Priority < conflicts[subIndex].Priority {
+					lowPriorityIndex = subIndex
+				}
+				subIndex++
+			} else {
+				break
+			}
+		}
+		if subIndex < 2 {
+			if endDate == conflicts[0].EndDate {
+				conflicts = conflicts[1:]
+			} else {
+				conflicts = append(conflicts[:1], conflicts[2:]...)
+			}
+		} else {
+			conflict := conflicts[lowPriorityIndex]
+			toUnschedule[conflict.AiringID] = conflict.ShowType
+			conflicts = append(conflicts[:lowPriorityIndex], conflicts[lowPriorityIndex+1:]...)
 		}
 	}
-	t.log.Printf("%d airings unscheduled\n", len(airings)-skipped)
-	return len(airings) - skipped, nil
+
+	_, err = t.unscheduleAirings(toUnschedule)
+	if err != nil {
+		t.log.Println(err)
+		return err
+	}
+
+	return nil
 }
 
 func getExportFilename(airing tablodb.ScheduledAiringRecord, path string) string {
 	sep := string(os.PathSeparator)
+
 	switch airing.ShowType {
 	case "series":
 		showTitle := utils.SanitizeFileString(airing.ShowTitle)
+
 		var season string
 		if len(airing.Season) == 1 {
 			season = "0" + utils.SanitizeFileString(airing.Season)
@@ -851,6 +968,7 @@ func getExportFilename(airing tablodb.ScheduledAiringRecord, path string) string
 		return path + sep + "Movies" + sep + showTitle + " - " + year + ".mp4"
 	case "sports":
 		showTitle := utils.SanitizeFileString(airing.ShowTitle)
+
 		var season string
 		if airing.Season == "" {
 			season = "00"
@@ -866,24 +984,27 @@ func getExportFilename(airing tablodb.ScheduledAiringRecord, path string) string
 
 func checkExported(toCheck []string, path string) ([]string, []string, error) {
 	var exportedMissing []string
+
 	for _, f := range toCheck {
 		switch _, err := os.Stat(f); {
 		case errors.Is(err, os.ErrNotExist):
 			exportedMissing = append(exportedMissing, f)
 		case err != nil:
-			return nil, nil, err
+			return nil, nil, fmt.Errorf("os.Stat error in checkExported: %v", err)
 		}
 	}
 
 	var exportedFound []string
 	sep := string(os.PathSeparator)
 	pathQueue := []string{path + sep + "Movies", path + sep + "Sports", path + sep + "TV"}
+
 	for len(pathQueue) > 0 {
 		curPath := pathQueue[0]
 		files, err := os.ReadDir(curPath)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, fmt.Errorf("os.ReadDir error in checkExported: %v", err)
 		}
+
 		for _, f := range files {
 			if f.IsDir() {
 				pathQueue = append(pathQueue, curPath+sep+f.Name())
@@ -891,6 +1012,7 @@ func checkExported(toCheck []string, path string) ([]string, []string, error) {
 				exportedFound = append(exportedFound, curPath+sep+f.Name())
 			}
 		}
+
 		if len(pathQueue) > 1 {
 			pathQueue = pathQueue[1:]
 		} else {
@@ -915,6 +1037,7 @@ func batch(uri string, input []string) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
+
 		output = append(output, tempOutput[1:len(tempOutput)-1]...)
 		if j < len(input) {
 			output = append(output, byte(','))
@@ -931,7 +1054,7 @@ func patch(uri string, data string) ([]byte, error) {
 
 	req, err := http.NewRequest(http.MethodPatch, uri, bytes.NewBuffer([]byte(data)))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("http.NewRequest error in patch: %v", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -943,6 +1066,7 @@ func patch(uri string, data string) ([]byte, error) {
 		}
 		fmt.Printf("Error connecting to %s. Waiting 30 seconds to retry\n", uri)
 		time.Sleep(30 * time.Second)
+
 		resp, err = client.Do(req)
 		if err != nil {
 			if resp != nil {
@@ -957,7 +1081,7 @@ func patch(uri string, data string) ([]byte, error) {
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("io.ReadAll error in patch: %v", err)
 	}
 
 	return body, nil
@@ -985,7 +1109,7 @@ func post(uri string, data string) ([]byte, error) {
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("io.ReadAll error in post: %v", err)
 	}
 
 	return body, nil
@@ -1013,7 +1137,7 @@ func get(uri string) ([]byte, error) {
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("io.ReadAll error in get: %v", err)
 	}
 
 	return body, nil

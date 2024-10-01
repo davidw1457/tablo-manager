@@ -287,6 +287,23 @@ WHERE
 UPDATE airing
 SET scheduled = 'none'
 WHERE scheduled in ('conflict','scheduled');`,
+	// select conflicted shows & priority
+	"selectPriorityConflicts": `
+SELECT
+  sc.airingID,
+  s.showType,
+  COALESCE(sp.priority, -1) AS priority,
+  sc.airDate,
+  sc.endDate
+FROM
+  scheduleConflicts sc
+  INNER JOIN show s ON sc.showID = s.showID
+  LEFT JOIN showPriority sp ON sc.showID = sp.showID
+ORDER BY
+  sc.airDate,
+  sc.endDate,
+  COALESCE(sp.priority, 0),
+  sc.airingID;`,
 }
 
 var templates = map[string]string{

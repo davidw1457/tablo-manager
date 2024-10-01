@@ -1,5 +1,7 @@
 package utils
 
+import "strings"
+
 func Substring(s string, start int, length int) string {
 	sRunes := []rune(s)
 	if start > len(sRunes)-1 {
@@ -8,33 +10,26 @@ func Substring(s string, start int, length int) string {
 		start += len(sRunes)
 	}
 
-	length = min(length, len(sRunes)-start)
+	length = minInt(length, len(sRunes)-start)
 
 	return string(sRunes[start : start+length])
 }
 
 func SanitizeFileString(s string) string {
-	var out []rune
-	for _, v := range s {
-		switch v {
-		case '<':
-		case '>':
-		case ':':
-		case '"':
-		case '/':
-		case '\\':
-		case '|':
-		case '?':
-		case '*':
-			out = append(out, '_')
-		default:
-			out = append(out, v)
-		}
-	}
-	return string(out)
+	out := strings.ReplaceAll(s, "<", "_")
+	out = strings.ReplaceAll(out, ">", "_")
+	out = strings.ReplaceAll(out, ":", "_")
+	out = strings.ReplaceAll(out, "\"", "_")
+	out = strings.ReplaceAll(out, "/", "_")
+	out = strings.ReplaceAll(out, "\\", "_")
+	out = strings.ReplaceAll(out, "|", "_")
+	out = strings.ReplaceAll(out, "?", "_")
+	out = strings.ReplaceAll(out, "*", "_")
+
+	return out
 }
 
-func min(x int, y int) int {
+func minInt(x int, y int) int {
 	switch {
 	case x < y:
 		return x
