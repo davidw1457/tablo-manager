@@ -333,7 +333,7 @@ func (t *Tablo) updateGuide() error {
 			err = t.autoresolveConflicts()
 			if err != nil {
 				t.log.Println(err)
-				return err
+				// return err
 			}
 		}
 	}
@@ -429,7 +429,7 @@ func (t *Tablo) updateScheduled() error {
 			err = t.autoresolveConflicts()
 			if err != nil {
 				t.log.Println(err)
-				return err
+				// return err
 			}
 		}
 	}

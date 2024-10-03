@@ -161,13 +161,9 @@ func (db *TabloDB) initialSetup() error {
 
 func (db *TabloDB) GetGuideLastUpdated() (time.Time, error) {
 	db.log.Println("getting guideLastUpdated from systemInfo")
-	result, err := db.database.Query(queries["getGuideLastUpdated"])
-	if err != nil {
-		db.log.Println(err)
-		return time.Unix(0, 0), err
-	}
+	result := db.database.QueryRow(queries["getGuideLastUpdated"])
 	var lastUpdatedRaw int64
-	err = result.Scan(&lastUpdatedRaw)
+	err := result.Scan(&lastUpdatedRaw)
 	if err != nil {
 		db.log.Println()
 		return time.Unix(0, 0), err
@@ -178,13 +174,9 @@ func (db *TabloDB) GetGuideLastUpdated() (time.Time, error) {
 
 func (db *TabloDB) GetScheduledLastUpdated() (time.Time, error) {
 	db.log.Println("getting scheduledLastUpdated from systeminfo")
-	result, err := db.database.Query(queries["getScheduledLastUpdated"])
-	if err != nil {
-		db.log.Println(err)
-		return time.Unix(0, 0), err
-	}
+	result := db.database.QueryRow(queries["getScheduledLastUpdated"])
 	var lastUpdatedRaw int64
-	err = result.Scan(&lastUpdatedRaw)
+	err := result.Scan(&lastUpdatedRaw)
 	if err != nil {
 		db.log.Println(err)
 		return time.Unix(0, 0), err
@@ -1180,17 +1172,19 @@ func (db *TabloDB) UpdateConflicts() error {
 		return err
 	}
 
-	rows, err := db.database.Query(queries["selectConflicts"])
+	conflictRows, err := db.database.Query(queries["selectConflicts"])
 	if err != nil {
 		db.log.Println(queries["selectConflicts"])
 		db.log.Println(err)
 		return err
 	}
 
+	defer conflictRows.Close()
+
 	var conflicts []conflictRecord
-	for rows.Next() {
+	for conflictRows.Next() {
 		var conflict conflictRecord
-		err = rows.Scan(&conflict.airingID, &conflict.showID, &conflict.airDate, &conflict.duration)
+		err = conflictRows.Scan(&conflict.airingID, &conflict.showID, &conflict.airDate, &conflict.duration)
 		if err != nil {
 			db.log.Println(err)
 			return err
@@ -1199,25 +1193,25 @@ func (db *TabloDB) UpdateConflicts() error {
 		conflicts = append(conflicts, conflict)
 	}
 
-	rows.Close()
-
 	if len(conflicts) == 0 {
 		db.log.Println("No conflicts")
 		return nil
 	}
 
-	rows, err = db.database.Query(queries["selectScheduled"])
+	scheduledRows, err := db.database.Query(queries["selectScheduled"])
 	if err != nil {
 		db.log.Println(queries["selectScheduled"])
 		db.log.Println(err)
 		return err
 	}
 
+	defer scheduledRows.Close()
+
 	var scheduled []*conflictRecord
 
-	for rows.Next() {
+	for scheduledRows.Next() {
 		schedule := new(conflictRecord)
-		err = rows.Scan(&schedule.airingID, &schedule.showID, &schedule.airDate, &schedule.duration)
+		err = scheduledRows.Scan(&schedule.airingID, &schedule.showID, &schedule.airDate, &schedule.duration)
 		if err != nil {
 			db.log.Println(err)
 			return err
@@ -1225,8 +1219,6 @@ func (db *TabloDB) UpdateConflicts() error {
 		schedule.endDate = schedule.airDate + schedule.duration
 		scheduled = append(scheduled, schedule)
 	}
-
-	rows.Close()
 
 	var conflictValues []string
 	for _, c := range conflicts {
@@ -1271,6 +1263,8 @@ func (db *TabloDB) GetExported() ([]string, error) {
 		db.log.Println(err)
 		return nil, err
 	}
+
+	defer rows.Close()
 
 	var exported []string
 	for rows.Next() {
@@ -1336,6 +1330,8 @@ func (db *TabloDB) GetScheduledAirings() ([]ScheduledAiringRecord, error) {
 		db.log.Println(err)
 		return nil, err
 	}
+
+	defer rows.Close()
 
 	var airings []ScheduledAiringRecord
 	for rows.Next() {
@@ -1454,6 +1450,8 @@ func (db *TabloDB) GetPrioritizedConflicts() ([]PrioritizedConflictRecord, error
 		db.log.Println(err)
 		return nil, err
 	}
+
+	defer rows.Close()
 
 	var conflicts []PrioritizedConflictRecord
 	for rows.Next() {

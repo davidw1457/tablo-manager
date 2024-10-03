@@ -10,12 +10,8 @@ import (
 	"tablo-manager/tablo"
 )
 
-// TODO: Cache images. Get from http://privateIP:8885/images/imageID
 // TODO: Create export function
-// TODO: Figure out best way to purge outdated data from system
-//       (e.g. remove showIDs that do not contain airings or recordings & are not scheduled)
-// TODO: Populate showFilter table
-// TODO: Populate priority table
+// TODO: Cache images. Get from http://privateIP:8885/images/imageID
 
 const userRWX = 0700 // unix-style octal permission
 const loopDelayMinutes = 15
