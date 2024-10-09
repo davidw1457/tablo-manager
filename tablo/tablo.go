@@ -13,9 +13,9 @@ import (
 	"strings"
 	"time"
 
-	"tablo-manager/tabloapi"
-	"tablo-manager/tablodb"
-	"tablo-manager/utils"
+	"github.com/davidw1457/tablo-manager/tabloapi"
+	"github.com/davidw1457/tablo-manager/tablodb"
+	"github.com/davidw1457/tablo-manager/utils"
 )
 
 const tabloWebUri = "https://api.tablotv.com/assocserver/getipinfo/"
@@ -955,13 +955,19 @@ func getExportFilename(airing tablodb.ScheduledAiringRecord, path string) string
 		} else {
 			season = utils.SanitizeFileString(airing.Season)
 		}
+		episodeTitle := utils.SanitizeFileString(airing.EpisodeTitle)
 		episode := fmt.Sprintf("%02d", airing.Episode)
-		if episode == "00" {
+		if episode == "00" && episodeTitle == "" {
 			airDate := time.Unix(int64(airing.AirDate), 0)
 			episode = airDate.Format("200601021504")
 		}
-		episodeTitle := utils.SanitizeFileString(airing.EpisodeTitle)
-		return path + sep + "TV" + sep + showTitle + sep + "Season " + season + sep + showTitle + " - s" + season + "e" + episode + " - " + episodeTitle + ".mp4"
+		var exportFilename string
+		if episodeTitle == "" {
+			exportFilename = showTitle + " - s" + season + "e" + episode + ".mp4"
+		} else {
+			exportFilename = showTitle + " - s" + season + "e" + episode + " - " + episodeTitle + ".mp4"
+		}
+		return path + sep + "TV" + sep + showTitle + sep + "Season " + season + sep + exportFilename
 	case "movies":
 		showTitle := utils.SanitizeFileString(airing.ShowTitle)
 		year := strconv.Itoa(airing.ReleaseYear)

@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"tablo-manager/tabloapi"
-	"tablo-manager/utils"
+	"github.com/davidw1457/tablo-manager/tabloapi"
+	"github.com/davidw1457/tablo-manager/utils"
 
 	_ "github.com/mattn/go-sqlite3"
 )

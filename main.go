@@ -7,7 +7,7 @@ import (
 	"os"
 	"time"
 
-	"tablo-manager/tablo"
+	"github.com/davidw1457/tablo-manager/tablo"
 )
 
 // TODO: Create export function

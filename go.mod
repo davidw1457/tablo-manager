@@ -1,4 +1,4 @@
-module tablo-manager
+module github.com/davidw1457/tablo-manager
 
 go 1.23.1
 
