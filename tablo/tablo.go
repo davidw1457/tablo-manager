@@ -13,9 +13,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/davidw1457/tablo-manager/stringmanip"
 	"github.com/davidw1457/tablo-manager/tabloapi"
 	"github.com/davidw1457/tablo-manager/tablodb"
-	"github.com/davidw1457/tablo-manager/utils"
 )
 
 const tabloWebUri = "https://api.tablotv.com/assocserver/getipinfo/"
@@ -65,8 +65,8 @@ func New(databaseDir string) ([]*Tablo, error) {
 
 	for _, v := range files {
 		fileName := v.Name()
-		if utils.Substring(fileName, -6, 6) == ".cache" {
-			localDBs[utils.Substring(fileName, 0, len(fileName)-6)] = fileName
+		if stringmanip.Substring(fileName, -6, 6) == ".cache" {
+			localDBs[stringmanip.Substring(fileName, 0, len(fileName)-6)] = fileName
 		}
 	}
 
@@ -945,17 +945,17 @@ func getExportFilename(airing tablodb.ScheduledAiringRecord, path string) string
 
 	switch airing.ShowType {
 	case "series":
-		showTitle := utils.SanitizeFileString(airing.ShowTitle)
+		showTitle := stringmanip.SanitizeFile(airing.ShowTitle)
 
 		var season string
 		if len(airing.Season) == 1 {
-			season = "0" + utils.SanitizeFileString(airing.Season)
+			season = "0" + stringmanip.SanitizeFile(airing.Season)
 		} else if airing.Season == "" {
 			season = "00"
 		} else {
-			season = utils.SanitizeFileString(airing.Season)
+			season = stringmanip.SanitizeFile(airing.Season)
 		}
-		episodeTitle := utils.SanitizeFileString(airing.EpisodeTitle)
+		episodeTitle := stringmanip.SanitizeFile(airing.EpisodeTitle)
 		episode := fmt.Sprintf("%02d", airing.Episode)
 		if episode == "00" && episodeTitle == "" {
 			airDate := time.Unix(int64(airing.AirDate), 0)
@@ -969,19 +969,19 @@ func getExportFilename(airing tablodb.ScheduledAiringRecord, path string) string
 		}
 		return path + sep + "TV" + sep + showTitle + sep + "Season " + season + sep + exportFilename
 	case "movies":
-		showTitle := utils.SanitizeFileString(airing.ShowTitle)
+		showTitle := stringmanip.SanitizeFile(airing.ShowTitle)
 		year := strconv.Itoa(airing.ReleaseYear)
 		return path + sep + "Movies" + sep + showTitle + " - " + year + ".mp4"
 	case "sports":
-		showTitle := utils.SanitizeFileString(airing.ShowTitle)
+		showTitle := stringmanip.SanitizeFile(airing.ShowTitle)
 
 		var season string
 		if airing.Season == "" {
 			season = "00"
 		} else {
-			season = utils.SanitizeFileString(airing.Season)
+			season = stringmanip.SanitizeFile(airing.Season)
 		}
-		episodeTitle := utils.SanitizeFileString(airing.EpisodeTitle)
+		episodeTitle := stringmanip.SanitizeFile(airing.EpisodeTitle)
 		return path + sep + "Sports" + sep + showTitle + sep + showTitle + " - " + season + " - " + episodeTitle + ".mp4"
 	default:
 		return ""

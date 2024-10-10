@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/davidw1457/tablo-manager/stringmanip"
 	"github.com/davidw1457/tablo-manager/tabloapi"
-	"github.com/davidw1457/tablo-manager/utils"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -65,7 +65,7 @@ func New(ipAddress string, name string, serverID string, directory string) (Tabl
 	}
 	tabloDB.log = log.New(io.MultiWriter(logFile, os.Stdout), "tablodb "+serverID+": ", log.LstdFlags)
 
-	databaseFile := directory + string(os.PathSeparator) + utils.SanitizeFileString(serverID) + ".cache"
+	databaseFile := directory + string(os.PathSeparator) + stringmanip.SanitizeFile(serverID) + ".cache"
 	tabloDB.log.Printf("creating %s\n", databaseFile)
 	db, err := sql.Open("sqlite3", databaseFile)
 	if err != nil {
@@ -83,7 +83,7 @@ func New(ipAddress string, name string, serverID string, directory string) (Tabl
 	}
 
 	tabloDB.log.Println("upserting systemInfo")
-	qryUpsertSystemInfo := fmt.Sprintf(templates["upsertSystemInfo"], sanitizeSqlString(serverID), sanitizeSqlString(name), sanitizeSqlString(ipAddress), dbVer)
+	qryUpsertSystemInfo := fmt.Sprintf(templates["upsertSystemInfo"], stringmanip.SanitizeSql(serverID), stringmanip.SanitizeSql(name), stringmanip.SanitizeSql(ipAddress), dbVer)
 	_, err = tabloDB.database.Exec(qryUpsertSystemInfo)
 	if err != nil {
 		tabloDB.log.Println(qryUpsertSystemInfo)
@@ -104,7 +104,7 @@ func Open(serverID string, ipAddress string, name string, directory string) (Tab
 	tabloDB.log = log.New(io.MultiWriter(logFile, os.Stdout), "tablodb "+serverID+": ", log.LstdFlags)
 
 	tabloDB.log.Println("opening tabloDB")
-	databaseFile := directory + string(os.PathSeparator) + utils.SanitizeFileString(serverID) + ".cache"
+	databaseFile := directory + string(os.PathSeparator) + stringmanip.SanitizeFile(serverID) + ".cache"
 	tabloDB.log.Printf("opening %s\n", databaseFile)
 	db, err := sql.Open("sqlite3", databaseFile)
 	if err != nil {
@@ -130,7 +130,7 @@ func Open(serverID string, ipAddress string, name string, directory string) (Tab
 	}
 
 	tabloDB.log.Println("updating systemInfo")
-	qryUpdateSystemInfo := fmt.Sprintf(templates["updateSystemInfo"], sanitizeSqlString(name), sanitizeSqlString(ipAddress))
+	qryUpdateSystemInfo := fmt.Sprintf(templates["updateSystemInfo"], stringmanip.SanitizeSql(name), stringmanip.SanitizeSql(ipAddress))
 	_, err = tabloDB.database.Exec(qryUpdateSystemInfo)
 	if err != nil {
 		tabloDB.log.Println(qryUpdateSystemInfo)
@@ -190,7 +190,7 @@ func (db *TabloDB) Enqueue(action string, details string, exportPath string) err
 	db.log.Printf("enqueueing '%s' '%s' '%s'\n", action, details, exportPath)
 	var qry string
 	if details == "" {
-		qrySelectQueueRecordByAction := fmt.Sprintf(templates["selectQueueRecordByAction"], sanitizeSqlString(action))
+		qrySelectQueueRecordByAction := fmt.Sprintf(templates["selectQueueRecordByAction"], stringmanip.SanitizeSql(action))
 		var count int
 		err := db.database.QueryRow(qrySelectQueueRecordByAction).Scan(&count)
 		if err != nil {
@@ -198,12 +198,12 @@ func (db *TabloDB) Enqueue(action string, details string, exportPath string) err
 			db.log.Println(err)
 			return err
 		} else if count == 0 {
-			qry = fmt.Sprintf(templates["insertQueuePriority"], sanitizeSqlString(action), sanitizeSqlString(details), sanitizeSqlString(exportPath))
+			qry = fmt.Sprintf(templates["insertQueuePriority"], stringmanip.SanitizeSql(action), stringmanip.SanitizeSql(details), stringmanip.SanitizeSql(exportPath))
 		} else {
 			return nil
 		}
 	} else {
-		qry = fmt.Sprintf(templates["insertQueue"], sanitizeSqlString(action), sanitizeSqlString(details), sanitizeSqlString(exportPath))
+		qry = fmt.Sprintf(templates["insertQueue"], stringmanip.SanitizeSql(action), stringmanip.SanitizeSql(details), stringmanip.SanitizeSql(exportPath))
 	}
 	_, err := db.database.Exec(qry)
 	if err != nil {
@@ -249,7 +249,7 @@ func (db *TabloDB) UpsertChannels(channels map[string]tabloapi.Channel) error {
 		updateType := strings.Split(k, "/")[1]
 		network := "null"
 		if v.Channel.Network != nil {
-			network = "'" + sanitizeSqlString(*v.Channel.Network) + "'"
+			network = "'" + stringmanip.SanitizeSql(*v.Channel.Network) + "'"
 		}
 		var channelValue strings.Builder
 		channelValue.WriteRune('(')
@@ -259,7 +259,7 @@ func (db *TabloDB) UpsertChannels(channels map[string]tabloapi.Channel) error {
 			channelValue.WriteString(strconv.Itoa(v.ObjectID))
 		}
 		channelValue.WriteString(",'")
-		channelValue.WriteString(sanitizeSqlString(v.Channel.CallSign))
+		channelValue.WriteString(stringmanip.SanitizeSql(v.Channel.CallSign))
 		channelValue.WriteString("',")
 		channelValue.WriteString(strconv.Itoa(v.Channel.Major))
 		channelValue.WriteRune(',')
@@ -315,7 +315,7 @@ func (db *TabloDB) UpsertShows(shows map[string]tabloapi.Show) error {
 
 		rule := "null"
 		if s.Schedule.Rule != "" {
-			rule = "'" + sanitizeSqlString(s.Schedule.Rule) + "'"
+			rule = "'" + stringmanip.SanitizeSql(s.Schedule.Rule) + "'"
 		}
 
 		channelID := "null"
@@ -342,24 +342,24 @@ func (db *TabloDB) UpsertShows(shows map[string]tabloapi.Show) error {
 		showValue.WriteRune('(')
 		showValue.WriteString(showID) // Int value, no sanitizaion needed
 		showValue.WriteRune(',')
-		showValue.WriteString(sanitizeSqlString(parentShowID))
+		showValue.WriteString(stringmanip.SanitizeSql(parentShowID))
 		showValue.WriteString(",'")
-		showValue.WriteString(sanitizeSqlString(showType))
+		showValue.WriteString(stringmanip.SanitizeSql(showType))
 		showValue.WriteString("',")
 		showValue.WriteString(rule) // Previously sanitized
 		showValue.WriteRune(',')
-		showValue.WriteString(sanitizeSqlString(channelID))
+		showValue.WriteString(stringmanip.SanitizeSql(channelID))
 		showValue.WriteString(",'")
-		showValue.WriteString(sanitizeSqlString(s.Keep.Rule))
+		showValue.WriteString(stringmanip.SanitizeSql(s.Keep.Rule))
 		showValue.WriteString("',")
-		showValue.WriteString(sanitizeSqlString(count))
+		showValue.WriteString(stringmanip.SanitizeSql(count))
 		showValue.WriteString(",'")
 
 		switch showType {
 		case "series":
 			description := "null"
 			if s.Series.Description != nil {
-				description = "'" + sanitizeSqlString(*s.Series.Description) + "'"
+				description = "'" + stringmanip.SanitizeSql(*s.Series.Description) + "'"
 			}
 
 			airdate := "null"
@@ -374,10 +374,10 @@ func (db *TabloDB) UpsertShows(shows map[string]tabloapi.Show) error {
 
 			rating := "null"
 			if s.Series.SeriesRating != nil {
-				rating = "'" + sanitizeSqlString(*s.Series.SeriesRating) + "'"
+				rating = "'" + stringmanip.SanitizeSql(*s.Series.SeriesRating) + "'"
 			}
 
-			showValue.WriteString(sanitizeSqlString(s.Series.Title))
+			showValue.WriteString(stringmanip.SanitizeSql(s.Series.Title))
 			showValue.WriteString("',")
 			showValue.WriteString(description) // Previously sanitized
 			showValue.WriteRune(',')
@@ -394,7 +394,7 @@ func (db *TabloDB) UpsertShows(shows map[string]tabloapi.Show) error {
 		case "movies":
 			description := "null"
 			if s.Movie.Plot != nil {
-				description = "'" + sanitizeSqlString(*s.Movie.Plot) + "'"
+				description = "'" + stringmanip.SanitizeSql(*s.Movie.Plot) + "'"
 			}
 
 			airdate := "null"
@@ -404,7 +404,7 @@ func (db *TabloDB) UpsertShows(shows map[string]tabloapi.Show) error {
 
 			filmRating := "null"
 			if s.Movie.FilmRating != nil {
-				filmRating = "'" + sanitizeSqlString(*s.Movie.FilmRating) + "'"
+				filmRating = "'" + stringmanip.SanitizeSql(*s.Movie.FilmRating) + "'"
 			}
 
 			qualityRating := "null"
@@ -412,7 +412,7 @@ func (db *TabloDB) UpsertShows(shows map[string]tabloapi.Show) error {
 				qualityRating = strconv.Itoa(*s.Movie.QualityRating)
 			}
 
-			showValue.WriteString(sanitizeSqlString(s.Movie.Title))
+			showValue.WriteString(stringmanip.SanitizeSql(s.Movie.Title))
 			showValue.WriteString("',")
 			showValue.WriteString(description) // Previosly sanitized
 			showValue.WriteRune(',')
@@ -430,9 +430,9 @@ func (db *TabloDB) UpsertShows(shows map[string]tabloapi.Show) error {
 			awards = s.Movie.Awards
 			directors = s.Movie.Directors
 		case "sports":
-			showValue.WriteString(sanitizeSqlString(s.Sport.Title))
+			showValue.WriteString(stringmanip.SanitizeSql(s.Sport.Title))
 			showValue.WriteString("','")
-			showValue.WriteString(sanitizeSqlString(s.Sport.Description))
+			showValue.WriteString(stringmanip.SanitizeSql(s.Sport.Description))
 			showValue.WriteString("',null,null,null,null)")
 
 			genres = s.Sport.Genres
@@ -449,7 +449,7 @@ func (db *TabloDB) UpsertShows(shows map[string]tabloapi.Show) error {
 			genreValue.WriteRune('(')
 			genreValue.WriteString(showID) // Int value, no sanitization needed
 			genreValue.WriteString(",'")
-			genreValue.WriteString(sanitizeSqlString(g))
+			genreValue.WriteString(stringmanip.SanitizeSql(g))
 			genreValue.WriteString("')")
 			showGenreValues = append(showGenreValues, genreValue.String())
 		}
@@ -459,7 +459,7 @@ func (db *TabloDB) UpsertShows(shows map[string]tabloapi.Show) error {
 			castValue.WriteRune('(')
 			castValue.WriteString(showID) // Int value, no sanitization needed
 			castValue.WriteString(",'")
-			castValue.WriteString(sanitizeSqlString(c))
+			castValue.WriteString(stringmanip.SanitizeSql(c))
 			castValue.WriteString("')")
 			showCastMemberValues = append(showCastMemberValues, castValue.String())
 		}
@@ -469,7 +469,7 @@ func (db *TabloDB) UpsertShows(shows map[string]tabloapi.Show) error {
 			directorValue.WriteRune('(')
 			directorValue.WriteString(showID) // Int value, no sanitization needed
 			directorValue.WriteString(",'")
-			directorValue.WriteString(sanitizeSqlString(d))
+			directorValue.WriteString(stringmanip.SanitizeSql(d))
 			directorValue.WriteString("')")
 			showDirectorValues = append(showDirectorValues, directorValue.String())
 		}
@@ -482,7 +482,7 @@ func (db *TabloDB) UpsertShows(shows map[string]tabloapi.Show) error {
 
 			nominee := "null"
 			if a.Nominee != "" {
-				nominee = "'" + sanitizeSqlString(a.Nominee) + "'"
+				nominee = "'" + stringmanip.SanitizeSql(a.Nominee) + "'"
 			}
 
 			var awardValue strings.Builder
@@ -491,9 +491,9 @@ func (db *TabloDB) UpsertShows(shows map[string]tabloapi.Show) error {
 			awardValue.WriteRune(',')
 			awardValue.WriteString(won) // Bool value, no sanitization needed
 			awardValue.WriteString(",'")
-			awardValue.WriteString(sanitizeSqlString(a.Name))
+			awardValue.WriteString(stringmanip.SanitizeSql(a.Name))
 			awardValue.WriteString("','")
-			awardValue.WriteString(sanitizeSqlString(a.Category))
+			awardValue.WriteString(stringmanip.SanitizeSql(a.Category))
 			awardValue.WriteString("',")
 			awardValue.WriteString(strconv.Itoa(a.Year))
 			awardValue.WriteRune(',')
@@ -604,16 +604,16 @@ func (db *TabloDB) UpsertAirings(airings map[string]tabloapi.Airing) error {
 		if a.SeriesPath != "" {
 			showID = strings.Split(a.SeriesPath, "/")[3]
 
-			episodeID = "'" + sanitizeSqlString(getEpisodeID(showID, strconv.Itoa(a.Episode.SeasonNumber), a.Episode.Number, airdate)) + "'"
+			episodeID = "'" + stringmanip.SanitizeSql(getEpisodeID(showID, strconv.Itoa(a.Episode.SeasonNumber), a.Episode.Number, airdate)) + "'"
 
 			title := "null"
 			if a.Episode.Title != "" {
-				title = "'" + sanitizeSqlString(a.Episode.Title) + "'"
+				title = "'" + stringmanip.SanitizeSql(a.Episode.Title) + "'"
 			}
 
 			description := "null"
 			if a.Episode.Description != "" {
-				description = "'" + sanitizeSqlString(a.Episode.Description) + "'"
+				description = "'" + stringmanip.SanitizeSql(a.Episode.Description) + "'"
 			}
 
 			originalAirDate := "null"
@@ -630,7 +630,7 @@ func (db *TabloDB) UpsertAirings(airings map[string]tabloapi.Airing) error {
 			episodeValue.WriteRune('(')
 			episodeValue.WriteString(episodeID) // Previously sanitized
 			episodeValue.WriteRune(',')
-			episodeValue.WriteString(sanitizeSqlString(showID))
+			episodeValue.WriteString(stringmanip.SanitizeSql(showID))
 			episodeValue.WriteRune(',')
 			episodeValue.WriteString(title) // Previously sanitized
 			episodeValue.WriteRune(',')
@@ -648,14 +648,14 @@ func (db *TabloDB) UpsertAirings(airings map[string]tabloapi.Airing) error {
 			episodeID = "null"
 		} else if a.SportPath != "" {
 			showID = strings.Split(a.SportPath, "/")[3]
-			episodeID = "'" + sanitizeSqlString(getEpisodeID(showID, a.Event.Season, 0, airdate)) + "'"
+			episodeID = "'" + stringmanip.SanitizeSql(getEpisodeID(showID, a.Event.Season, 0, airdate)) + "'"
 
 			for _, t := range a.Event.Teams {
 				var teamValue strings.Builder
 				teamValue.WriteRune('(')
 				teamValue.WriteString(strconv.Itoa(t.TeamID))
 				teamValue.WriteString(",'")
-				teamValue.WriteString(sanitizeSqlString(t.Name))
+				teamValue.WriteString(stringmanip.SanitizeSql(t.Name))
 				teamValue.WriteString("')")
 				teamValues = append(teamValues, teamValue.String())
 
@@ -670,12 +670,12 @@ func (db *TabloDB) UpsertAirings(airings map[string]tabloapi.Airing) error {
 
 			season := "null"
 			if a.Event.Season != "" {
-				season = "'" + sanitizeSqlString(a.Event.Season) + "'"
+				season = "'" + stringmanip.SanitizeSql(a.Event.Season) + "'"
 			}
 
 			seasonType := "null"
 			if a.Event.SeasonType != "" {
-				seasonType = "'" + sanitizeSqlString(a.Event.SeasonType) + "'"
+				seasonType = "'" + stringmanip.SanitizeSql(a.Event.SeasonType) + "'"
 			}
 
 			homeTeamID := "null"
@@ -687,11 +687,11 @@ func (db *TabloDB) UpsertAirings(airings map[string]tabloapi.Airing) error {
 			episodeValue.WriteRune('(')
 			episodeValue.WriteString(episodeID)
 			episodeValue.WriteRune(',')
-			episodeValue.WriteString(sanitizeSqlString(showID))
+			episodeValue.WriteString(stringmanip.SanitizeSql(showID))
 			episodeValue.WriteString(",'")
-			episodeValue.WriteString(sanitizeSqlString(a.Event.Title))
+			episodeValue.WriteString(stringmanip.SanitizeSql(a.Event.Title))
 			episodeValue.WriteString("','")
-			episodeValue.WriteString(sanitizeSqlString(a.Event.Description))
+			episodeValue.WriteString(stringmanip.SanitizeSql(a.Event.Description))
 			episodeValue.WriteString("',null,")
 			episodeValue.WriteString(season) // previously sanitized
 			episodeValue.WriteRune(',')
@@ -710,7 +710,7 @@ func (db *TabloDB) UpsertAirings(airings map[string]tabloapi.Airing) error {
 		airingValue.WriteRune('(')
 		airingValue.WriteString(strconv.Itoa(a.ObjectID))
 		airingValue.WriteRune(',')
-		airingValue.WriteString(sanitizeSqlString(showID))
+		airingValue.WriteString(stringmanip.SanitizeSql(showID))
 		airingValue.WriteRune(',')
 		airingValue.WriteString(strconv.Itoa(airdate))
 		airingValue.WriteRune(',')
@@ -718,7 +718,7 @@ func (db *TabloDB) UpsertAirings(airings map[string]tabloapi.Airing) error {
 		airingValue.WriteRune(',')
 		airingValue.WriteString(strconv.Itoa(a.AiringDetails.Channel.ObjectID))
 		airingValue.WriteString(",'")
-		airingValue.WriteString(sanitizeSqlString(a.Schedule.State))
+		airingValue.WriteString(stringmanip.SanitizeSql(a.Schedule.State))
 		airingValue.WriteString("',")
 		airingValue.WriteString(episodeID) // previously sanitized
 		airingValue.WriteRune(')')
@@ -839,16 +839,16 @@ func (db *TabloDB) UpsertRecordings(recordings map[string]tabloapi.Recording) er
 		if r.SeriesPath != "" {
 			showID = "-" + strings.Split(r.SeriesPath, "/")[3]
 
-			episodeID = "'" + sanitizeSqlString(getEpisodeID(showID, strconv.Itoa(r.Episode.SeasonNumber), r.Episode.Number, airdate)) + "'"
+			episodeID = "'" + stringmanip.SanitizeSql(getEpisodeID(showID, strconv.Itoa(r.Episode.SeasonNumber), r.Episode.Number, airdate)) + "'"
 
 			title := "null"
 			if r.Episode.Title != "" {
-				title = "'" + sanitizeSqlString(r.Episode.Title) + "'"
+				title = "'" + stringmanip.SanitizeSql(r.Episode.Title) + "'"
 			}
 
 			description := "null"
 			if r.Episode.Description != "" {
-				description = "'" + sanitizeSqlString(r.Episode.Description) + "'"
+				description = "'" + stringmanip.SanitizeSql(r.Episode.Description) + "'"
 			}
 
 			originalAirDate := "null"
@@ -865,7 +865,7 @@ func (db *TabloDB) UpsertRecordings(recordings map[string]tabloapi.Recording) er
 			episodeValue.WriteRune('(')
 			episodeValue.WriteString(episodeID) // Previously sanitized
 			episodeValue.WriteRune(',')
-			episodeValue.WriteString(sanitizeSqlString(showID))
+			episodeValue.WriteString(stringmanip.SanitizeSql(showID))
 			episodeValue.WriteRune(',')
 			episodeValue.WriteString(title) // Previously sanitized
 			episodeValue.WriteRune(',')
@@ -883,14 +883,14 @@ func (db *TabloDB) UpsertRecordings(recordings map[string]tabloapi.Recording) er
 			episodeID = "null"
 		} else if r.SportPath != "" {
 			showID = "-" + strings.Split(r.SportPath, "/")[3]
-			episodeID = "'" + sanitizeSqlString(getEpisodeID(showID, r.Event.Season, 0, airdate)) + "'"
+			episodeID = "'" + stringmanip.SanitizeSql(getEpisodeID(showID, r.Event.Season, 0, airdate)) + "'"
 
 			for _, t := range r.Event.Teams {
 				var teamValue strings.Builder
 				teamValue.WriteRune('(')
 				teamValue.WriteString(strconv.Itoa(t.TeamID))
 				teamValue.WriteString(",'")
-				teamValue.WriteString(sanitizeSqlString(t.Name))
+				teamValue.WriteString(stringmanip.SanitizeSql(t.Name))
 				teamValue.WriteString("')")
 				teamValues = append(teamValues, teamValue.String())
 
@@ -905,12 +905,12 @@ func (db *TabloDB) UpsertRecordings(recordings map[string]tabloapi.Recording) er
 
 			season := "null"
 			if r.Event.Season != "" {
-				season = "'" + sanitizeSqlString(r.Event.Season) + "'"
+				season = "'" + stringmanip.SanitizeSql(r.Event.Season) + "'"
 			}
 
 			seasonType := "null"
 			if r.Event.SeasonType != "" {
-				seasonType = "'" + sanitizeSqlString(r.Event.SeasonType) + "'"
+				seasonType = "'" + stringmanip.SanitizeSql(r.Event.SeasonType) + "'"
 			}
 
 			homeTeamID := "null"
@@ -922,11 +922,11 @@ func (db *TabloDB) UpsertRecordings(recordings map[string]tabloapi.Recording) er
 			episodeValue.WriteRune('(')
 			episodeValue.WriteString(episodeID)
 			episodeValue.WriteRune(',')
-			episodeValue.WriteString(sanitizeSqlString(showID))
+			episodeValue.WriteString(stringmanip.SanitizeSql(showID))
 			episodeValue.WriteString(",'")
-			episodeValue.WriteString(sanitizeSqlString(r.Event.Title))
+			episodeValue.WriteString(stringmanip.SanitizeSql(r.Event.Title))
 			episodeValue.WriteString("','")
-			episodeValue.WriteString(sanitizeSqlString(r.Event.Description))
+			episodeValue.WriteString(stringmanip.SanitizeSql(r.Event.Description))
 			episodeValue.WriteString("',null,")
 			episodeValue.WriteString(season) // previously sanitized
 			episodeValue.WriteRune(',')
@@ -950,7 +950,7 @@ func (db *TabloDB) UpsertRecordings(recordings map[string]tabloapi.Recording) er
 		recordingValue.WriteRune('(')
 		recordingValue.WriteString(strconv.Itoa(r.ObjectID))
 		recordingValue.WriteRune(',')
-		recordingValue.WriteString(sanitizeSqlString(showID))
+		recordingValue.WriteString(stringmanip.SanitizeSql(showID))
 		recordingValue.WriteRune(',')
 		recordingValue.WriteString(strconv.Itoa(airdate))
 		recordingValue.WriteRune(',')
@@ -958,7 +958,7 @@ func (db *TabloDB) UpsertRecordings(recordings map[string]tabloapi.Recording) er
 		recordingValue.WriteRune(',')
 		recordingValue.WriteString("-" + strconv.Itoa(r.AiringDetails.Channel.ObjectID))
 		recordingValue.WriteString(",'")
-		recordingValue.WriteString(sanitizeSqlString(r.VideoDetails.State))
+		recordingValue.WriteString(stringmanip.SanitizeSql(r.VideoDetails.State))
 		recordingValue.WriteString("',")
 		recordingValue.WriteString(clean) // Bool value, no sanitization needed
 		recordingValue.WriteRune(',')
@@ -966,7 +966,7 @@ func (db *TabloDB) UpsertRecordings(recordings map[string]tabloapi.Recording) er
 		recordingValue.WriteRune(',')
 		recordingValue.WriteString(strconv.Itoa(r.VideoDetails.Size))
 		recordingValue.WriteString(",'")
-		recordingValue.WriteString(sanitizeSqlString(r.VideoDetails.ComSkip.State))
+		recordingValue.WriteString(stringmanip.SanitizeSql(r.VideoDetails.ComSkip.State))
 		recordingValue.WriteString("',")
 		recordingValue.WriteString(episodeID) // previously sanitized
 		recordingValue.WriteRune(')')
@@ -977,29 +977,29 @@ func (db *TabloDB) UpsertRecordings(recordings map[string]tabloapi.Recording) er
 		if r.VideoDetails.State == "failed" || !r.VideoDetails.Clean || r.VideoDetails.ComSkip.State != "none" {
 			var comSkipError = "null"
 			if r.VideoDetails.ComSkip.Error != nil {
-				comSkipError = "'" + sanitizeSqlString(*r.VideoDetails.ComSkip.Error) + "'"
+				comSkipError = "'" + stringmanip.SanitizeSql(*r.VideoDetails.ComSkip.Error) + "'"
 			}
 
 			var errorCode = "null"
 			if r.VideoDetails.Error.Code != nil {
-				comSkipError = "'" + sanitizeSqlString(*r.VideoDetails.Error.Code) + "'"
+				comSkipError = "'" + stringmanip.SanitizeSql(*r.VideoDetails.Error.Code) + "'"
 			}
 
 			var errorDetails = "null"
 			if r.VideoDetails.Error.Details != nil {
-				comSkipError = "'" + sanitizeSqlString(*r.VideoDetails.Error.Details) + "'"
+				comSkipError = "'" + stringmanip.SanitizeSql(*r.VideoDetails.Error.Details) + "'"
 			}
 
 			var errorDescription = "null"
 			if r.VideoDetails.Error.Description != nil {
-				comSkipError = "'" + sanitizeSqlString(*r.VideoDetails.Error.Description) + "'"
+				comSkipError = "'" + stringmanip.SanitizeSql(*r.VideoDetails.Error.Description) + "'"
 			}
 
 			var errorValue strings.Builder
 			errorValue.WriteRune('(')
 			errorValue.WriteString(strconv.Itoa(r.ObjectID))
 			errorValue.WriteRune(',')
-			errorValue.WriteString(sanitizeSqlString(showID))
+			errorValue.WriteString(stringmanip.SanitizeSql(showID))
 			errorValue.WriteRune(',')
 			errorValue.WriteString(episodeID) // previously sanitized
 			errorValue.WriteRune(',')
@@ -1013,11 +1013,11 @@ func (db *TabloDB) UpsertRecordings(recordings map[string]tabloapi.Recording) er
 			errorValue.WriteRune(',')
 			errorValue.WriteString(strconv.Itoa(r.VideoDetails.Size))
 			errorValue.WriteString(",'")
-			errorValue.WriteString(sanitizeSqlString(r.VideoDetails.State))
+			errorValue.WriteString(stringmanip.SanitizeSql(r.VideoDetails.State))
 			errorValue.WriteString("',")
 			errorValue.WriteString(clean) // Bool value. No sanitization needed
 			errorValue.WriteString(",'")
-			errorValue.WriteString(sanitizeSqlString(r.VideoDetails.ComSkip.State))
+			errorValue.WriteString(stringmanip.SanitizeSql(r.VideoDetails.ComSkip.State))
 			errorValue.WriteString("',")
 			errorValue.WriteString(comSkipError) // previously sanitized
 			errorValue.WriteRune(',')
@@ -1287,7 +1287,7 @@ func (db *TabloDB) DeleteExported(toDelete []string) error {
 
 	var sanitizedToDelete []string
 	for _, v := range toDelete {
-		sanitizedToDelete = append(sanitizedToDelete, sanitizeSqlString(v))
+		sanitizedToDelete = append(sanitizedToDelete, stringmanip.SanitizeSql(v))
 	}
 
 	qryDeleteExported := fmt.Sprintf(templates["deleteExported"], strings.Join(sanitizedToDelete, "','"))
@@ -1307,7 +1307,7 @@ func (db *TabloDB) InsertExported(toInsert []string) error {
 
 	var sanitizedToInsert []string
 	for _, v := range toInsert {
-		sanitizedToInsert = append(sanitizedToInsert, sanitizeSqlString(v))
+		sanitizedToInsert = append(sanitizedToInsert, stringmanip.SanitizeSql(v))
 	}
 
 	qryInsertExported := fmt.Sprintf(templates["insertExported"], strings.Join(sanitizedToInsert, "'),('"))
@@ -1392,13 +1392,13 @@ func (db *TabloDB) UpsertSingleAiring(airing tabloapi.Airing) error {
 
 	if airing.SeriesPath != "" {
 		showID = strings.Split(airing.SeriesPath, "/")[3]
-		episodeID = "'" + sanitizeSqlString(getEpisodeID(showID, strconv.Itoa(airing.Episode.SeasonNumber), airing.Episode.Number, airdate)) + "'"
+		episodeID = "'" + stringmanip.SanitizeSql(getEpisodeID(showID, strconv.Itoa(airing.Episode.SeasonNumber), airing.Episode.Number, airdate)) + "'"
 	} else if airing.MoviePath != "" {
 		showID = strings.Split(airing.MoviePath, "/")[3]
 		episodeID = "null"
 	} else if airing.SportPath != "" {
 		showID = strings.Split(airing.SportPath, "/")[3]
-		episodeID = "'" + sanitizeSqlString(getEpisodeID(showID, airing.Event.Season, 0, airdate)) + "'"
+		episodeID = "'" + stringmanip.SanitizeSql(getEpisodeID(showID, airing.Event.Season, 0, airdate)) + "'"
 	} else {
 		err := fmt.Errorf("No show path for %d", airing.ObjectID)
 		db.log.Println(err)
@@ -1409,7 +1409,7 @@ func (db *TabloDB) UpsertSingleAiring(airing tabloapi.Airing) error {
 	airingValue.WriteRune('(')
 	airingValue.WriteString(strconv.Itoa(airing.ObjectID))
 	airingValue.WriteRune(',')
-	airingValue.WriteString(sanitizeSqlString(showID))
+	airingValue.WriteString(stringmanip.SanitizeSql(showID))
 	airingValue.WriteRune(',')
 	airingValue.WriteString(strconv.Itoa(airdate))
 	airingValue.WriteRune(',')
@@ -1417,7 +1417,7 @@ func (db *TabloDB) UpsertSingleAiring(airing tabloapi.Airing) error {
 	airingValue.WriteRune(',')
 	airingValue.WriteString(strconv.Itoa(airing.AiringDetails.Channel.ObjectID))
 	airingValue.WriteString(",'")
-	airingValue.WriteString(sanitizeSqlString(airing.Schedule.State))
+	airingValue.WriteString(stringmanip.SanitizeSql(airing.Schedule.State))
 	airingValue.WriteString("',")
 	airingValue.WriteString(episodeID) // previously sanitized
 	airingValue.WriteRune(')')
@@ -1527,15 +1527,15 @@ func int64ToTime(i int64) time.Time {
 func dateStringToInt(s string) (int, error) {
 	switch len(s) {
 	case 10:
-		year, err := strconv.Atoi(utils.Substring(s, 0, 4))
+		year, err := strconv.Atoi(stringmanip.Substring(s, 0, 4))
 		if err != nil {
 			return 0, err
 		}
-		month, err := strconv.Atoi(utils.Substring(s, 5, 2))
+		month, err := strconv.Atoi(stringmanip.Substring(s, 5, 2))
 		if err != nil {
 			return 0, err
 		}
-		day, err := strconv.Atoi(utils.Substring(s, -2, 2))
+		day, err := strconv.Atoi(stringmanip.Substring(s, -2, 2))
 		if err != nil {
 			return 0, err
 		}
@@ -1558,16 +1558,4 @@ func dateYearToInt(y int) int {
 	return int(date.Unix())
 }
 
-func sanitizeSqlString(s string) string {
-	var out []rune
 
-	for _, s := range s {
-		switch s {
-		case '\'':
-			out = append(out, '\'', '\'')
-		default:
-			out = append(out, s)
-		}
-	}
-	return string(out)
-}
